@@ -1,0 +1,21 @@
+# Databricks AIS Pipelines Configuration
+# Configuration for the dripper and Auto Loader components
+
+# Unity Catalog Configuration
+catalog: main
+schema: streaming
+
+# Volume Configuration
+source_volume: full_history      # Volume containing full history files
+landing_volume: landing          # Volume where files are dripped to
+
+# Dripper Configuration
+dripper:
+  n_per_run: 5                   # Number of files to release per run
+  delete_source: true            # Whether to delete source files after copying (set to false to archive)
+
+# Auto Loader Configuration
+autoloader:
+  schema_location: _schemas/events           # Relative path within landing volume
+  checkpoint_location: _checkpoints/events   # Relative path within landing volume
+  target_table: main.events_raw             # Target Delta table name
