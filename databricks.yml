@@ -52,8 +52,8 @@ variables:
     default: 2024
   
   download_limit:
-    description: "Max files to download (null for all files)"
-    default: 1
+    description: "Maximum number of files to download (0 = all files)"
+    default: 0
 
 artifacts:
   # Build your project into a wheel using uv, so the exact env is defined by your pyproject/uv.lock.
