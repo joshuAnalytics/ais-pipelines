@@ -40,7 +40,7 @@ class UnityUtilities:
             from pyspark.dbutils import DBUtils
             dbutils = DBUtils(self.spark)
             files = dbutils.fs.ls(self.volume_path)
-            return {f.name for f in files if f.name.endswith(".csv.zst")}
+            return {f.name for f in files if f.name.endswith(".zip")}
         except Exception:
             return set()
 
@@ -59,12 +59,12 @@ class WebScraper:
         return self._parse_html_for_csv_links(response.text, year)
 
     def _parse_html_for_csv_links(self, html_content: str, year: int) -> List[str]:
-        """Extract .csv.zst file URLs from HTML content."""
+        """Extract .zip file URLs from HTML content."""
         soup = BeautifulSoup(html_content, "html.parser")
         links = []
         for link in soup.find_all("a"):
             href = link.get("href")
-            if href and href.endswith(".csv.zst"):
+            if href and href.endswith(".zip"):
                 full_url = f"{self.base_url}/{year}/{href}"
                 links.append(full_url)
         return links
@@ -78,23 +78,25 @@ class FileDownloader:
         self.volume_path = volume_path
 
     def download_file(self, url: str, filename: str) -> None:
-        """Download a file from URL to the volume."""
-        from pyspark.dbutils import DBUtils
-        dbutils = DBUtils(self.spark)
-        
-        response = requests.get(url, stream=True, timeout=300)
-        response.raise_for_status()
-        
-        local_temp = f"/tmp/{filename}"
-        with open(local_temp, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
+        """Download a file from URL directly to the volume with progress bar."""
+        from tqdm import tqdm
         
         dest_path = f"{self.volume_path}/{filename}"
-        dbutils.fs.cp(f"file://{local_temp}", dest_path)
         
-        import os
-        os.remove(local_temp)
+        with requests.get(url, stream=True, timeout=300) as r:
+            r.raise_for_status()
+            
+            # Get total file size from headers
+            total_size = int(r.headers.get("content-length", 0))
+            
+            with open(dest_path, "wb") as f:
+                with tqdm(
+                    total=total_size, unit="B", unit_scale=True, desc=filename
+                ) as pbar:
+                    for chunk in r.iter_content(chunk_size=8 * 1024 * 1024):
+                        if chunk:
+                            f.write(chunk)
+                            pbar.update(len(chunk))
 
     def filter_existing_files(
         self, all_urls: List[str], existing_files: Set[str]
