@@ -6,6 +6,7 @@ requires-python = ">=3.10"
 dependencies = [
     "beautifulsoup4",
     "requests",
+    "tqdm",
 ]
 
 [project.scripts]
