@@ -153,7 +153,7 @@ class AISDownloader:
 
     def _download_files(self, urls: List[str]) -> None:
         """Download all files in the list."""
-        urls_to_process = urls[:self.limit] if self.limit else urls
+        urls_to_process = urls[:self.limit] if self.limit and self.limit > 0 else urls
         total_files = len(urls_to_process)
         
         for i, url in enumerate(urls_to_process, 1):
