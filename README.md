@@ -10,6 +10,10 @@ general style instructions:
 - do not write multi-line print code (maximum one line, keep consise)
 - everything in this project will run in databricks, packaged as a .whl file, on serverless compute
 
+## About AIS Data
+
+This project works with Automatic Identification System (AIS) data from NOAA's Office for Coastal Management. AIS is a maritime vessel tracking system that broadcasts ship positions, speed, course, and other vessel information. NOAA's Office for Coastal Management serves to increase the resilience of the nation's coastal zone by helping communities and businesses take the actions needed to keep coastal residents safe, the economy sound, and natural resources functioning. The AIS data provided by NOAA supports critical coastal management decisions, marine transportation planning, environmental protection, and maritime safety analysis. 
+
 ## download ais
 
 download_ais.py downloads source files from https://coast.noaa.gov/htdata/CMSP/AISDataHandler/{year}/index.html 
@@ -17,29 +21,59 @@ where {year} is the calendar year. Each page has a list of AIS data in .csv.zst 
 
 ### Configuration
 
-Settings are defined in `config/config.yaml`:
+Settings are defined in the `variables` section of `databricks.yml`:
 
 ```yaml
-catalog: main
-schema: streaming
-
-download:
-  target_volume: full_history    # Volume where AIS files will be downloaded
-  year: 2024                     # Year to download from NOAA
-  limit: 1                       # Max files to download (null for all files)
+variables:
+  # Unity Catalog Configuration
+  catalog:
+    description: "Unity Catalog catalog name"
+    default: ais
+  
+  schema:
+    description: "Unity Catalog schema name"
+    default: ais_assets
+  
+  # Download Configuration
+  download_target_volume:
+    description: "Volume where AIS files will be downloaded"
+    default: full_history
+  
+  download_year:
+    description: "Year to download from NOAA"
+    default: 2024
+  
+  download_limit:
+    description: "Max files to download (null for all files)"
+    default: 1
 ```
 
-For testing, set `limit: 1`. For production, set `limit: null` to download all available files.
+For testing, set `download_limit: 1`. For production, set `download_limit: null` to download all available files.
+
+You can also override these variables per target (dev/prod):
+
+```yaml
+targets:
+  dev:
+    default: true
+    variables:
+      download_limit: 1
+  
+  prod:
+    mode: production
+    variables:
+      download_limit: null
+```
 
 ### Parameters
 
-The script accepts these parameters (via config or CLI):
+The script accepts these parameters passed from the bundle variables:
 
-- `target_catalog`: catalog name in Unity Catalog (default from config)
-- `target_schema`: schema name in Unity Catalog (default from config)
-- `target_volume`: target Unity Catalog volume for files (default from config)
-- `year`: calendar year to download (default from config)
-- `limit`: max number of files to download (default from config, null = all)
+- `--catalog`: catalog name in Unity Catalog (from `${var.catalog}`)
+- `--schema`: schema name in Unity Catalog (from `${var.schema}`)
+- `--volume`: target Unity Catalog volume for files (from `${var.download_target_volume}`)
+- `--year`: calendar year to download (from `${var.download_year}`)
+- `--limit`: max number of files to download (from `${var.download_limit}`)
 
 ### Pre-download checks
 
@@ -72,7 +106,7 @@ python -m build
 # Deploy to dev environment
 databricks bundle deploy
 
-# Run test (downloads 1 file based on config.yaml)
+# Run test (downloads 1 file based on variables in databricks.yml)
 databricks bundle run download_ais_test
 
 # Deploy to production
@@ -80,18 +114,16 @@ databricks bundle deploy --target prod
 databricks bundle run download_ais_test --target prod
 ```
 
-### CLI overrides
+### Variable overrides
 
-Override config values via command line:
+Override variables when deploying or running:
 
 ```bash
-# Override year and limit
-databricks bundle run download_ais_test \
-  --python-named-params year=2023 limit=5
+# Override variables for deployment
+databricks bundle deploy --var="download_year=2023" --var="download_limit=5"
 
-# Override volume
-databricks bundle run download_ais_test \
-  --python-named-params target_volume=ais_archive
+# Run with overridden variables
+databricks bundle run download_ais_test --var="download_year=2023" --var="download_limit=5"
 ```
 
 ### Verification

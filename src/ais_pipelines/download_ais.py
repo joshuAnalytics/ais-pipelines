@@ -2,14 +2,9 @@
 
 import argparse
 from typing import List, Set, Optional
-import yaml
 import requests
 from bs4 import BeautifulSoup
 from pyspark.sql import SparkSession
-try:
-    from importlib.resources import files
-except ImportError:
-    from importlib_resources import files
 
 
 class UnityUtilities:
@@ -166,63 +161,47 @@ class AISDownloader:
         print(f"Download complete: {total_files} files")
 
 
-def load_config(config_path: Optional[str] = None) -> dict:
-    """Load configuration from YAML file or package resources."""
-    if config_path:
-        # Load from provided path (for local development/overrides)
-        with open(config_path, 'r') as f:
-            return yaml.safe_load(f)
-    else:
-        # Load from package resources
-        config_file = files('ais_pipelines.config').joinpath('config.yaml')
-        with config_file.open('r') as f:
-            return yaml.safe_load(f)
-
-
 def main() -> None:
     """Main entry point for the download script."""
     parser = argparse.ArgumentParser(
         description="Download AIS data from NOAA to Unity Catalog volumes"
     )
     parser.add_argument(
-        "--config",
-        default=None,
-        help="Path to configuration file (default: load from package)",
+        "--catalog",
+        required=True,
+        help="Unity Catalog catalog name",
     )
     parser.add_argument(
-        "--target-catalog",
-        help="Unity Catalog catalog name (overrides config)",
+        "--schema",
+        required=True,
+        help="Unity Catalog schema name",
     )
     parser.add_argument(
-        "--target-schema",
-        help="Unity Catalog schema name (overrides config)",
-    )
-    parser.add_argument(
-        "--target-volume",
-        help="Unity Catalog volume name (overrides config)",
+        "--volume",
+        required=True,
+        help="Unity Catalog volume name",
     )
     parser.add_argument(
         "--year",
         type=int,
-        help="Calendar year to download (overrides config)",
+        required=True,
+        help="Calendar year to download",
     )
     parser.add_argument(
         "--limit",
         type=int,
-        help="Maximum number of files to download (overrides config)",
+        default=None,
+        help="Maximum number of files to download (default: all files)",
     )
     
     args = parser.parse_args()
     
-    # Load configuration from file
-    config = load_config(args.config)
-    
-    # Use command-line args if provided, otherwise use config values
-    catalog = args.target_catalog or config.get('catalog', 'main')
-    schema = args.target_schema or config.get('schema', 'streaming')
-    volume = args.target_volume or config['download']['target_volume']
-    year = args.year or config['download']['year']
-    limit = args.limit if args.limit is not None else config['download'].get('limit')
+    # Use all parameters from command-line args
+    catalog = args.catalog
+    schema = args.schema
+    volume = args.volume
+    year = args.year
+    limit = args.limit
     
     downloader = AISDownloader(
         catalog=catalog,

@@ -4,7 +4,6 @@ version = "0.1.0"
 description = "AIS data pipelines for Databricks"
 requires-python = ">=3.10"
 dependencies = [
-    "pyyaml",
     "beautifulsoup4",
     "requests",
 ]
@@ -13,14 +12,3 @@ dependencies = [
 download-ais = "ais_pipelines.download_ais:main"
 dripper = "ais_pipelines.dripper:main"
 autoloader = "ais_pipelines.autoloader:main"
-
-[build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools]
-packages = ["ais_pipelines"]
-package-dir = {"ais_pipelines" = "src/ais_pipelines"}
-
-[tool.setuptools.package-data]
-ais_pipelines = ["config/*.yaml"]
