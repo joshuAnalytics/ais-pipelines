@@ -50,21 +50,6 @@ variables:
 
 For testing, set `download_limit: 1`. For production, set `download_limit: null` to download all available files.
 
-You can also override these variables per target (dev/prod):
-
-```yaml
-targets:
-  dev:
-    default: true
-    variables:
-      download_limit: 1
-  
-  prod:
-    mode: production
-    variables:
-      download_limit: null
-```
-
 ### Parameters
 
 The script accepts these parameters passed from the bundle variables:
