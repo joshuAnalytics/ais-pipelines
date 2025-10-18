@@ -1,0 +1,15 @@
+[project]
+name = "ais-pipelines"
+version = "0.1.0"
+description = "AIS data pipelines for Databricks"
+requires-python = ">=3.10"
+dependencies = [
+    "beautifulsoup4",
+    "requests",
+    "tqdm>=4.67.1",
+]
+
+[project.scripts]
+download-ais = "ais_pipelines.download_ais:main"
+dripper = "ais_pipelines.dripper:main"
+autoloader = "ais_pipelines.autoloader:main"

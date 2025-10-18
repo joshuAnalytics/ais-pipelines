@@ -1,0 +1,98 @@
+bundle:
+  name: ais-pipelines
+
+variables:
+  # Unity Catalog Configuration
+  catalog:
+    description: "Unity Catalog catalog name"
+    default: ais
+  
+  schema:
+    description: "Unity Catalog schema name"
+    default: ais_assets
+  
+  # Volume Configuration
+  source_volume:
+    description: "Volume containing full history files"
+    default: full_history
+  
+  landing_volume:
+    description: "Volume where files are dripped to"
+    default: landing
+  
+  # Dripper Configuration
+  dripper_n_per_run:
+    description: "Number of files to release per run"
+    default: 5
+  
+  dripper_delete_source:
+    description: "Whether to delete source files after copying"
+    default: true
+  
+  # Auto Loader Configuration
+  autoloader_schema_location:
+    description: "Relative path within landing volume for schemas"
+    default: _schemas/events
+  
+  autoloader_checkpoint_location:
+    description: "Relative path within landing volume for checkpoints"
+    default: _checkpoints/events
+  
+  autoloader_target_table:
+    description: "Target Delta table name"
+    default: main.events_raw
+  
+  # Download Configuration
+  download_target_volume:
+    description: "Volume where AIS files will be downloaded"
+    default: full_history
+  
+  download_year:
+    description: "Year to download from NOAA"
+    default: 2024
+  
+  download_limit:
+    description: "Maximum number of files to download (0 = all files)"
+    default: 0
+
+artifacts:
+  # Build your project into a wheel using uv, so the exact env is defined by your pyproject/uv.lock.
+  app_wheel:
+    type: whl
+    path: .
+    # `uv build` produces a wheel into ./dist; the job will install that wheel on serverless.
+    build: uv build
+
+resources:
+  jobs:
+    download_ais_test:
+      name: "[${bundle.target}] AIS Download Test"
+      tasks:
+        - task_key: download_single_file
+          python_wheel_task:
+            package_name: ais_pipelines
+            entry_point: download-ais
+            parameters:
+              - "--catalog"
+              - "${var.catalog}"
+              - "--schema"
+              - "${var.schema}"
+              - "--volume"
+              - "${var.download_target_volume}"
+              - "--year"
+              - "${var.download_year}"
+              - "--limit"
+              - "${var.download_limit}"
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
+            dependencies:
+              - ./dist/*.whl
+
+targets:
+  dev:
+    default: true
+  prod:
+    mode: production
