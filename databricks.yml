@@ -1,0 +1,33 @@
+bundle:
+  name: ais-pipelines
+
+artifacts:
+  # Build your project into a wheel using uv, so the exact env is defined by your pyproject/uv.lock.
+  app_wheel:
+    type: whl
+    path: .
+    # `uv build` produces a wheel into ./dist; the job will install that wheel on serverless.
+    build: uv build
+
+resources:
+  jobs:
+    download_ais_test:
+      name: "[${bundle.target}] AIS Download Test"
+      tasks:
+        - task_key: download_single_file
+          python_wheel_task:
+            package_name: ais_pipelines
+            entry_point: download-ais
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
+            dependencies:
+              - ./dist/*.whl
+
+targets:
+  dev:
+    default: true
+  prod:
+    mode: production

@@ -2,8 +2,8 @@
 # Configuration for the dripper and Auto Loader components
 
 # Unity Catalog Configuration
-catalog: main
-schema: streaming
+catalog: ais
+schema: ais_assets
 
 # Volume Configuration
 source_volume: full_history      # Volume containing full history files
@@ -19,3 +19,9 @@ autoloader:
   schema_location: _schemas/events           # Relative path within landing volume
   checkpoint_location: _checkpoints/events   # Relative path within landing volume
   target_table: main.events_raw             # Target Delta table name
+
+# Download Configuration
+download:
+  target_volume: full_history    # Volume where AIS files will be downloaded
+  year: 2024                     # Year to download from NOAA
+  limit: 1                       # Max files to download (null for all files)

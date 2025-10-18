@@ -1,7 +1,120 @@
 # ais-pipelines
 
+general style instructions: 
 
-You can run a small Python “dripper” on Databricks serverless Jobs that moves/slices files from a Unity Catalog Volume with your full history into a separate landing Volume on a schedule. Auto Loader then treats each landed file as a new event.
+- Follow PEP 8, when sensible.
+- follow SOLID principles, when sensible. 
+- use type hints for every function. 
+- use classes and methods, where sensible. 
+- do not create try catch blocks which don't catch specific errors 
+- do not write multi-line print code (maximum one line, keep consise)
+- everything in this project will run in databricks, packaged as a .whl file, on serverless compute
+
+## download ais
+
+download_ais.py downloads source files from https://coast.noaa.gov/htdata/CMSP/AISDataHandler/{year}/index.html 
+where {year} is the calendar year. Each page has a list of AIS data in .csv.zst format.
+
+### Configuration
+
+Settings are defined in `config/config.yaml`:
+
+```yaml
+catalog: main
+schema: streaming
+
+download:
+  target_volume: full_history    # Volume where AIS files will be downloaded
+  year: 2024                     # Year to download from NOAA
+  limit: 1                       # Max files to download (null for all files)
+```
+
+For testing, set `limit: 1`. For production, set `limit: null` to download all available files.
+
+### Parameters
+
+The script accepts these parameters (via config or CLI):
+
+- `target_catalog`: catalog name in Unity Catalog (default from config)
+- `target_schema`: schema name in Unity Catalog (default from config)
+- `target_volume`: target Unity Catalog volume for files (default from config)
+- `year`: calendar year to download (default from config)
+- `limit`: max number of files to download (default from config, null = all)
+
+### Pre-download checks
+
+Before downloading, the script:
+
+* Creates catalog and schema if they don't exist
+* Creates volume if it doesn't exist
+* Checks if files already exist on the volume - skips re-downloading duplicates
+
+### Building the package
+
+The project is packaged as a Python wheel for deployment to Databricks:
+
+```bash
+# Build the wheel (requires setuptools and wheel)
+python -m pip install build
+python -m build
+```
+
+This creates a `.whl` file in the `dist/` directory that contains the package and its dependencies.
+
+### Deployment
+
+Deploy using Databricks Asset Bundles:
+
+```bash
+# Build the wheel first
+python -m build
+
+# Deploy to dev environment
+databricks bundle deploy
+
+# Run test (downloads 1 file based on config.yaml)
+databricks bundle run download_ais_test
+
+# Deploy to production
+databricks bundle deploy --target prod
+databricks bundle run download_ais_test --target prod
+```
+
+### CLI overrides
+
+Override config values via command line:
+
+```bash
+# Override year and limit
+databricks bundle run download_ais_test \
+  --python-named-params year=2023 limit=5
+
+# Override volume
+databricks bundle run download_ais_test \
+  --python-named-params target_volume=ais_archive
+```
+
+### Verification
+
+Check downloaded files in your Unity Catalog volume:
+
+```sql
+LIST '/Volumes/main/streaming/full_history/'
+```
+
+Or via Python:
+
+```python
+files = dbutils.fs.ls("/Volumes/main/streaming/full_history/")
+for f in files:
+    print(f.path, f.size)
+```
+
+Expected filenames: `AIS_2024_01_01.csv.zst`, `AIS_2024_01_02.csv.zst`, etc.
+
+## dripper
+
+You can run a small Python “dripper” on Databricks serverless Jobs that moves/slices files from a Unity Catalog Volume with your full history into a separate landing Volume on a schedule. 
 
 How it fits together
 
@@ -10,17 +123,12 @@ Source: /Volumes/<catalog>/<schema>/<full_history_volume>/...
 Landing (“stream”): /Volumes/<catalog>/<schema>/<src_volume>/...
 
 Job: a Python script task on Serverless compute (scheduled every N seconds/minutes) that copies a handful of files from Source → Landing (optionally adding date/hour folders). Databricks serverless Jobs support Python script tasks and cron-like schedules. 
-Databricks Documentation
-+2
-Databricks Documentation
-+2
+
+## auto loader
 
 Auto Loader: points at the Landing path and ingests incrementally. 
-Databricks Documentation
 
 Storage/paths: Unity Catalog Volumes are the right place for file data; you access them via /Volumes/<cat>/<schema>/<vol>/…. 
-Databricks Documentation
-+1
 
 Minimal “dripper” script (Python task on a Job)
 
