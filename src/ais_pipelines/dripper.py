@@ -1,61 +1,132 @@
-# dripper.py - Drip files from source volume to landing volume
-"""
-Gradually releases files from a source volume to a landing volume for streaming ingestion.
-This allows for controlled, time-partitioned data ingestion.
-"""
+"""Drip files from source volume to landing volume for controlled ingestion."""
 
 import argparse
-import uuid
-import datetime
+from typing import List
 from pyspark.sql import SparkSession
 from pyspark.dbutils import DBUtils
 
 
-def run_dripper(catalog: str, schema: str, source_volume: str, landing_volume: str, 
-                n_per_run: int, delete_source: bool = True) -> None:
-    """
-    Release files from source volume to landing volume.
-    
-    Args:
-        catalog: Unity Catalog catalog name
-        schema: Unity Catalog schema name
-        source_volume: Source volume name containing files to drip
-        landing_volume: Destination volume name for landing files
-        n_per_run: Number of files to release per run
-        delete_source: Whether to delete source files after copying
-    """
-    spark = SparkSession.builder.getOrCreate()
-    dbutils = DBUtils(spark)
+class UnityUtilities:
+    """Handles Unity Catalog operations for catalog, schema, and volume management."""
 
-    src_root = f"/Volumes/{catalog}/{schema}/{source_volume}"
-    dst_root = f"/Volumes/{catalog}/{schema}/{landing_volume}"
-    staging = f"{dst_root}/_staging"
+    def __init__(self, spark: SparkSession, catalog: str, schema: str) -> None:
+        self.spark = spark
+        self.catalog = catalog
+        self.schema = schema
 
-    def now_parts():
-        utc = datetime.datetime.utcnow()
-        return f"dt={utc.date()}/hr={utc.hour}"
+    def ensure_catalog_exists(self) -> None:
+        """Create catalog if it doesn't exist."""
+        self.spark.sql(f"CREATE CATALOG IF NOT EXISTS {self.catalog}")
 
-    # Ensure staging dir exists
-    dbutils.fs.mkdirs(staging)
+    def ensure_schema_exists(self) -> None:
+        """Create schema if it doesn't exist."""
+        self.spark.sql(f"CREATE SCHEMA IF NOT EXISTS {self.catalog}.{self.schema}")
 
-    # List a batch from source volume
-    candidates = [f for f in dbutils.fs.ls(src_root) if f.path.endswith(".csv")]
-    candidates = sorted(candidates, key=lambda x: x.name)[:n_per_run]
+    def ensure_volume_exists(self, volume: str) -> None:
+        """Create volume if it doesn't exist."""
+        self.spark.sql(
+            f"CREATE VOLUME IF NOT EXISTS {self.catalog}.{self.schema}.{volume}"
+        )
 
-    for f in candidates:
-        # Copy to staging so readers never see partials; cp on cloud storage creates a full object
-        tmp_name = f"{uuid.uuid4().hex}.csv"
-        dbutils.fs.cp(f.path, f"{staging}/{tmp_name}")  # copy
-        # Move into a time-partitioned folder in landing
-        rel = now_parts()
-        dest_dir = f"{dst_root}/{rel}"
-        dbutils.fs.mkdirs(dest_dir)
-        dbutils.fs.mv(f"{staging}/{tmp_name}", f"{dest_dir}/{f.name}")  # move within landing
-        # Optionally delete source (or keep as archive)
+
+class FileManager:
+    """Manages file listing and filtering operations."""
+
+    def __init__(self, spark: SparkSession, volume_path: str) -> None:
+        self.spark = spark
+        self.volume_path = volume_path
+        self.dbutils = DBUtils(spark)
+
+    def get_candidate_files(self, n_per_run: int) -> List:
+        """Get list of candidate files to process."""
+        all_files = self._list_files()
+        filtered_files = self._filter_by_extension(all_files)
+        sorted_files = sorted(filtered_files, key=lambda x: x.name)
+        return sorted_files[:n_per_run]
+
+    def _list_files(self) -> List:
+        """List all files in the volume."""
+        return self.dbutils.fs.ls(self.volume_path)
+
+    def _filter_by_extension(self, files: List) -> List:
+        """Filter files by allowed extensions."""
+        return [
+            f for f in files
+            if f.path.endswith(".csv.zst") or f.path.endswith(".zip")
+        ]
+
+
+class FileDripper:
+    """Handles file move/copy operations between volumes."""
+
+    def __init__(self, spark: SparkSession, destination_path: str) -> None:
+        self.spark = spark
+        self.destination_path = destination_path
+        self.dbutils = DBUtils(spark)
+
+    def drip_file(self, file_info, delete_source: bool) -> None:
+        """Move or copy a single file to destination."""
+        dest_path = f"{self.destination_path}/{file_info.name}"
+
         if delete_source:
-            dbutils.fs.rm(f.path)
+            self.dbutils.fs.mv(file_info.path, dest_path)
+        else:
+            self.dbutils.fs.cp(file_info.path, dest_path)
 
-    print(f"Released {len(candidates)} file(s) -> {dst_root}")
+
+class DripperOrchestrator:
+    """Orchestrates the file dripping process."""
+
+    def __init__(
+        self,
+        catalog: str,
+        schema: str,
+        source_volume: str,
+        landing_volume: str,
+        n_per_run: int,
+        delete_source: bool,
+    ) -> None:
+        self.spark = SparkSession.builder.getOrCreate()
+        self.catalog = catalog
+        self.schema = schema
+        self.source_volume = source_volume
+        self.landing_volume = landing_volume
+        self.n_per_run = n_per_run
+        self.delete_source = delete_source
+
+        self.unity = UnityUtilities(self.spark, catalog, schema)
+        self.source_path = f"/Volumes/{catalog}/{schema}/{source_volume}"
+        self.landing_path = f"/Volumes/{catalog}/{schema}/{landing_volume}"
+        self.file_manager = FileManager(self.spark, self.source_path)
+        self.file_dripper = FileDripper(self.spark, self.landing_path)
+
+    def run(self) -> None:
+        """Execute the file dripping workflow."""
+        self._setup_infrastructure()
+        candidates = self._get_candidate_files()
+        self._process_files(candidates)
+        self._print_summary(len(candidates))
+
+    def _setup_infrastructure(self) -> None:
+        """Ensure catalog, schema, and volumes exist."""
+        self.unity.ensure_catalog_exists()
+        self.unity.ensure_schema_exists()
+        self.unity.ensure_volume_exists(self.source_volume)
+        self.unity.ensure_volume_exists(self.landing_volume)
+        print(f"Volumes ready: {self.catalog}.{self.schema}.{self.source_volume} -> {self.catalog}.{self.schema}.{self.landing_volume}")
+
+    def _get_candidate_files(self) -> List:
+        """Get list of files to process."""
+        return self.file_manager.get_candidate_files(self.n_per_run)
+
+    def _process_files(self, candidates: List) -> None:
+        """Process each candidate file."""
+        for file_info in candidates:
+            self.file_dripper.drip_file(file_info, self.delete_source)
+
+    def _print_summary(self, file_count: int) -> None:
+        """Print processing summary."""
+        print(f"Released {file_count} file(s) -> {self.landing_path}")
 
 
 def main() -> None:
@@ -91,14 +162,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--delete-source",
-        type=lambda x: x.lower() == "true",
+        type=lambda x: x if isinstance(x, bool) else x.lower() == "true",
         default=True,
         help="Whether to delete source files after copying (true/false)",
     )
-    
+
     args = parser.parse_args()
-    
-    run_dripper(
+
+    dripper = DripperOrchestrator(
         catalog=args.catalog,
         schema=args.schema,
         source_volume=args.source_volume,
@@ -106,6 +177,7 @@ def main() -> None:
         n_per_run=args.n_per_run,
         delete_source=args.delete_source,
     )
+    dripper.run()
 
 
 if __name__ == "__main__":
