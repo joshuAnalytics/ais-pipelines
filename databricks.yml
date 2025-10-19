@@ -23,11 +23,11 @@ variables:
   # Dripper Configuration
   dripper_n_per_run:
     description: "Number of files to release per run"
-    default: 5
+    default: 1
   
   dripper_delete_source:
     description: "Whether to delete source files after copying"
-    default: true
+    default: false
   
   # Auto Loader Configuration
   autoloader_schema_location:
@@ -40,7 +40,7 @@ variables:
   
   autoloader_target_table:
     description: "Target Delta table name"
-    default: main.events_raw
+    default: "${var.catalog}.events_raw"
   
   # Download Configuration
   download_target_volume:
@@ -83,6 +83,38 @@ resources:
               - "${var.download_year}"
               - "--limit"
               - "${var.download_limit}"
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
+            dependencies:
+              - ./dist/*.whl
+    
+    dripper:
+      name: "[${bundle.target}] AIS Dripper"
+      schedule:
+        quartz_cron_expression: "0/10 * * * * ?"  # every 10 seconds
+        timezone_id: "UTC"
+        pause_status: "UNPAUSED"
+      tasks:
+        - task_key: drip_files
+          python_wheel_task:
+            package_name: ais_pipelines
+            entry_point: dripper
+            parameters:
+              - "--catalog"
+              - "${var.catalog}"
+              - "--schema"
+              - "${var.schema}"
+              - "--source-volume"
+              - "${var.source_volume}"
+              - "--landing-volume"
+              - "${var.landing_volume}"
+              - "--n-per-run"
+              - "${var.dripper_n_per_run}"
+              - "--delete-source"
+              - "${var.dripper_delete_source}"
           environment_key: default
       environments:
         - environment_key: default
