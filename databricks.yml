@@ -49,7 +49,7 @@ variables:
   
   download_year:
     description: "Year to download from NOAA"
-    default: 2024
+    default: 2025
   
   download_limit:
     description: "Maximum number of files to download (0 = all files)"
