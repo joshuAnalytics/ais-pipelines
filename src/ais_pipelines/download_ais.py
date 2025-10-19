@@ -40,7 +40,7 @@ class UnityUtilities:
             from pyspark.dbutils import DBUtils
             dbutils = DBUtils(self.spark)
             files = dbutils.fs.ls(self.volume_path)
-            return {f.name for f in files if f.name.endswith(".zip")}
+            return {f.name for f in files if f.name.endswith(".zip") or f.name.endswith(".csv.zst")}
         except Exception:
             return set()
 
@@ -59,12 +59,12 @@ class WebScraper:
         return self._parse_html_for_csv_links(response.text, year)
 
     def _parse_html_for_csv_links(self, html_content: str, year: int) -> List[str]:
-        """Extract .zip file URLs from HTML content."""
+        """Extract .zip and .csv.zst file URLs from HTML content."""
         soup = BeautifulSoup(html_content, "html.parser")
         links = []
         for link in soup.find_all("a"):
             href = link.get("href")
-            if href and href.endswith(".zip"):
+            if href and (href.endswith(".zip") or href.endswith(".csv.zst")):
                 full_url = f"{self.base_url}/{year}/{href}"
                 links.append(full_url)
         return links
