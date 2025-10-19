@@ -32,21 +32,24 @@ class UnityUtilities:
 class FileManager:
     """Manages file listing and filtering operations."""
 
-    def __init__(self, spark: SparkSession, volume_path: str) -> None:
+    def __init__(self, spark: SparkSession, source_path: str, landing_path: str) -> None:
         self.spark = spark
-        self.volume_path = volume_path
+        self.source_path = source_path
+        self.landing_path = landing_path
         self.dbutils = DBUtils(spark)
 
     def get_candidate_files(self, n_per_run: int) -> List:
-        """Get list of candidate files to process."""
+        """Get list of unprocessed candidate files to process."""
         all_files = self._list_files()
-        filtered_files = self._filter_by_extension(all_files)
-        sorted_files = sorted(filtered_files, key=lambda x: x.name)
+        filtered_by_extension = self._filter_by_extension(all_files)
+        landing_files = self._get_landing_files()
+        unprocessed_files = self._filter_unprocessed(filtered_by_extension, landing_files)
+        sorted_files = sorted(unprocessed_files, key=lambda x: x.name)
         return sorted_files[:n_per_run]
 
     def _list_files(self) -> List:
-        """List all files in the volume."""
-        return self.dbutils.fs.ls(self.volume_path)
+        """List all files in the source volume."""
+        return self.dbutils.fs.ls(self.source_path)
 
     def _filter_by_extension(self, files: List) -> List:
         """Filter files by allowed extensions."""
@@ -54,6 +57,18 @@ class FileManager:
             f for f in files
             if f.path.endswith(".csv.zst") or f.path.endswith(".zip")
         ]
+
+    def _get_landing_files(self) -> set:
+        """Get set of filenames already in landing volume."""
+        try:
+            landing_files = self.dbutils.fs.ls(self.landing_path)
+            return {f.name for f in landing_files}
+        except Exception:
+            return set()
+
+    def _filter_unprocessed(self, files: List, landing_files: set) -> List:
+        """Filter out files that already exist in landing volume."""
+        return [f for f in files if f.name not in landing_files]
 
 
 class FileDripper:
@@ -97,7 +112,7 @@ class DripperOrchestrator:
         self.unity = UnityUtilities(self.spark, catalog, schema)
         self.source_path = f"/Volumes/{catalog}/{schema}/{source_volume}"
         self.landing_path = f"/Volumes/{catalog}/{schema}/{landing_volume}"
-        self.file_manager = FileManager(self.spark, self.source_path)
+        self.file_manager = FileManager(self.spark, self.source_path, self.landing_path)
         self.file_dripper = FileDripper(self.spark, self.landing_path)
 
     def run(self) -> None:
