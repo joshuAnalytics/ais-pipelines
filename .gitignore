@@ -73,6 +73,7 @@ secrets.yml
 .project
 .pydevproject
 .settings/
+.ruff_cache
 
 # OS specific
 .DS_Store
