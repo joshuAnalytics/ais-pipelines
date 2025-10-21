@@ -1,7 +1,7 @@
 """Download AIS data from NOAA to Unity Catalog volumes."""
 
 import argparse
-from typing import List, Set, Optional
+from typing import List, Set
 import requests
 from bs4 import BeautifulSoup
 from pyspark.sql import SparkSession
@@ -10,7 +10,9 @@ from pyspark.sql import SparkSession
 class UnityUtilities:
     """Handles Unity Catalog operations for catalog, schema, and volume management."""
 
-    def __init__(self, spark: SparkSession, catalog: str, schema: str, volume: str) -> None:
+    def __init__(
+        self, spark: SparkSession, catalog: str, schema: str, volume: str
+    ) -> None:
         self.spark = spark
         self.catalog = catalog
         self.schema = schema
@@ -38,9 +40,14 @@ class UnityUtilities:
         """Return set of existing filenames in the volume."""
         try:
             from pyspark.dbutils import DBUtils
+
             dbutils = DBUtils(self.spark)
             files = dbutils.fs.ls(self.volume_path)
-            return {f.name for f in files if f.name.endswith(".zip") or f.name.endswith(".csv.zst")}
+            return {
+                f.name
+                for f in files
+                if f.name.endswith(".zip") or f.name.endswith(".csv.zst")
+            }
         except Exception:
             return set()
 
@@ -80,15 +87,15 @@ class FileDownloader:
     def download_file(self, url: str, filename: str) -> None:
         """Download a file from URL directly to the volume with progress bar."""
         from tqdm import tqdm
-        
+
         dest_path = f"{self.volume_path}/{filename}"
-        
+
         with requests.get(url, stream=True, timeout=300) as r:
             r.raise_for_status()
-            
+
             # Get total file size from headers
             total_size = int(r.headers.get("content-length", 0))
-            
+
             with open(dest_path, "wb") as f:
                 with tqdm(
                     total=total_size, unit="B", unit_scale=True, desc=filename
@@ -140,22 +147,22 @@ class AISDownloader:
         print(f"Fetching file list for year {self.year}")
         all_files = self.scraper.fetch_file_list(self.year)
         print(f"Found {len(all_files)} files on remote")
-        
+
         existing_files = self.unity.get_existing_files()
         print(f"Found {len(existing_files)} files already in volume")
-        
+
         files_to_download = self.downloader.filter_existing_files(
             all_files, existing_files
         )
         print(f"Need to download {len(files_to_download)} files")
-        
+
         return files_to_download
 
     def _download_files(self, urls: List[str]) -> None:
         """Download all files in the list."""
-        urls_to_process = urls[:self.limit] if self.limit and self.limit > 0 else urls
+        urls_to_process = urls[: self.limit] if self.limit and self.limit > 0 else urls
         total_files = len(urls_to_process)
-        
+
         for i, url in enumerate(urls_to_process, 1):
             filename = url.split("/")[-1]
             print(f"Downloading {i}/{total_files}: {filename}")
@@ -195,16 +202,16 @@ def main() -> None:
         default=None,
         help="Maximum number of files to download (default: all files)",
     )
-    
+
     args = parser.parse_args()
-    
+
     # Use all parameters from command-line args
     catalog = args.catalog
     schema = args.schema
     volume = args.volume
     year = args.year
     limit = args.limit
-    
+
     downloader = AISDownloader(
         catalog=catalog,
         schema=schema,
