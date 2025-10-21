@@ -1,15 +1,5 @@
 # ais-pipelines
 
-general style instructions: 
-
-- Follow PEP 8, when sensible.
-- follow SOLID principles, when sensible. 
-- use type hints for every function. 
-- use classes and methods, where sensible. 
-- do not create try catch blocks which don't catch specific errors 
-- do not write multi-line print code (maximum one line, keep consise)
-- everything in this project will run in databricks, packaged as a .whl file, on serverless compute
-
 ## About AIS Data
 
 This project works with Automatic Identification System (AIS) data from NOAA's Office for Coastal Management. AIS is a maritime vessel tracking system that broadcasts ship positions, speed, course, and other vessel information. NOAA's Office for Coastal Management serves to increase the resilience of the nation's coastal zone by helping communities and businesses take the actions needed to keep coastal residents safe, the economy sound, and natural resources functioning. The AIS data provided by NOAA supports critical coastal management decisions, marine transportation planning, environmental protection, and maritime safety analysis. 
