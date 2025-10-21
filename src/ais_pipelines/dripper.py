@@ -118,6 +118,12 @@ class DripperOrchestrator:
     def run(self) -> None:
         """Execute the file dripping workflow."""
         self._setup_infrastructure()
+        
+        # Check if landing already contains all source files
+        if self._check_if_landing_full():
+            print("Landing volume already contains all source files. Exiting gracefully.")
+            return
+        
         candidates = self._get_candidate_files()
         self._process_files(candidates)
         self._print_summary(len(candidates))
@@ -129,6 +135,23 @@ class DripperOrchestrator:
         self.unity.ensure_volume_exists(self.source_volume)
         self.unity.ensure_volume_exists(self.landing_volume)
         print(f"Volumes ready: {self.catalog}.{self.schema}.{self.source_volume} -> {self.catalog}.{self.schema}.{self.landing_volume}")
+
+    def _check_if_landing_full(self) -> bool:
+        """Check if landing volume already contains all source files.
+        
+        Returns:
+            bool: True if landing contains all source files, False otherwise.
+        """
+        # Get all source files filtered by extension
+        all_source_files = self.file_manager._list_files()
+        filtered_source_files = self.file_manager._filter_by_extension(all_source_files)
+        source_filenames = {f.name for f in filtered_source_files}
+        
+        # Get all landing files
+        landing_filenames = self.file_manager._get_landing_files()
+        
+        # Check if landing contains all source files
+        return source_filenames.issubset(landing_filenames) and len(source_filenames) > 0
 
     def _get_candidate_files(self) -> List:
         """Get list of files to process."""
