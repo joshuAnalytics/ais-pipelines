@@ -122,6 +122,34 @@ resources:
             client: "1"
             dependencies:
               - ./dist/*.whl
+    
+    autoloader:
+      name: "[${bundle.target}] AIS Auto Loader"
+      tasks:
+        - task_key: stream_files
+          python_wheel_task:
+            package_name: ais_pipelines
+            entry_point: autoloader
+            parameters:
+              - "--catalog"
+              - "${var.catalog}"
+              - "--schema"
+              - "${var.schema}"
+              - "--landing-volume"
+              - "${var.landing_volume}"
+              - "--schema-location"
+              - "${var.autoloader_schema_location}"
+              - "--checkpoint-location"
+              - "${var.autoloader_checkpoint_location}"
+              - "--target-table"
+              - "${var.autoloader_target_table}"
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
+            dependencies:
+              - ./dist/*.whl
 
 targets:
   dev:
