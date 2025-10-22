@@ -153,6 +153,14 @@ resources:
             client: "1"
             dependencies:
               - ./dist/*.whl
+    
+    data_quality_notebook:
+      name: "[${bundle.target}] Data Quality Tutorial"
+      tasks:
+        - task_key: run_notebook
+          notebook_task:
+            notebook_path: ./notebooks/data_quality_tutorial.py
+            source: WORKSPACE
 
 targets:
   dev:
