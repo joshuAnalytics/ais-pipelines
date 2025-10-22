@@ -10,9 +10,9 @@ variables:
     description: "Unity Catalog catalog name"
     default: dbacademy
   
-  schema:
-    description: "Unity Catalog schema name"
-    default: labuser12237744_1761062588
+  username:
+    description: "Workspace username (email) - schema name will be derived from this"
+    default: ${workspace.current_user.userName}
   
   # Volume Configuration
   source_volume:
@@ -78,8 +78,8 @@ resources:
             parameters:
               - "--catalog"
               - "${var.catalog}"
-              - "--schema"
-              - "${var.schema}"
+              - "--username"
+              - "${var.username}"
               - "--volume"
               - "${var.download_target_volume}"
               - "--year"
@@ -108,8 +108,8 @@ resources:
             parameters:
               - "--catalog"
               - "${var.catalog}"
-              - "--schema"
-              - "${var.schema}"
+              - "--username"
+              - "${var.username}"
               - "--source-volume"
               - "${var.source_volume}"
               - "--landing-volume"
@@ -136,8 +136,8 @@ resources:
             parameters:
               - "--catalog"
               - "${var.catalog}"
-              - "--schema"
-              - "${var.schema}"
+              - "--username"
+              - "${var.username}"
               - "--landing-volume"
               - "${var.landing_volume}"
               - "--schema-location"
