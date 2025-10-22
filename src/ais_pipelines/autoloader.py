@@ -5,56 +5,104 @@ This enables continuous ingestion of files as they arrive in the landing volume.
 """
 
 import argparse
-from pyspark.sql import SparkSession
-from pyspark.sql.types import *
+from pyspark.sql import SparkSession, DataFrame
+from pyspark.sql.streaming import StreamingQuery
 from pyspark.sql.functions import to_timestamp
 
 
-def run_autoloader(catalog: str, schema: str, landing_volume: str,
-                   schema_location: str, checkpoint_location: str, target_table: str) -> None:
-    """
-    Run Auto Loader to continuously ingest files from landing volume to Delta table.
+def parse_schema_from_username(username: str) -> str:
+    """Extract schema name from username by removing domain suffix.
     
     Args:
-        catalog: Unity Catalog catalog name
-        schema: Unity Catalog schema name
-        landing_volume: Landing volume name
-        schema_location: Relative path within landing volume for schema inference
-        checkpoint_location: Relative path within landing volume for checkpoints
-        target_table: Fully qualified target Delta table name (e.g., catalog.schema.table)
-    """
-    spark = SparkSession.builder.getOrCreate()
+        username: Full username/email)
     
-    # Define schema for CSV files
-    file_schema = StructType([
-        StructField("event_time", StringType()),
-        StructField("user_id", StringType()),
-        StructField("action", StringType()),
-        StructField("value", StringType()),
-    ])
+    Returns:
+        Schema name without domain
+    """
+    return username.split("@")[0]
 
-    # Construct paths
-    landing_path = f"/Volumes/{catalog}/{schema}/{landing_volume}"
-    schema_loc = f"{landing_path}/{schema_location}"
-    checkpoint_loc = f"{landing_path}/{checkpoint_location}"
 
-    # Read stream using Auto Loader (cloudFiles)
-    df = (spark.readStream
-          .format("cloudFiles")
-          .option("cloudFiles.format", "csv")
-          .option("cloudFiles.schemaLocation", schema_loc)
-          .option("header", "true")
-          .schema(file_schema)
-          .load(landing_path))
+class StreamReader:
+    """Handles Auto Loader stream reading configuration."""
 
-    # Transform: convert event_time to timestamp
-    df = df.withColumn("event_ts", to_timestamp("event_time"))
+    def __init__(
+        self, spark: SparkSession, landing_path: str, schema_location: str
+    ) -> None:
+        self.spark = spark
+        self.landing_path = landing_path
+        self.schema_location = schema_location
 
-    # Write stream to Delta table
-    (df.writeStream
-       .format("delta")
-       .option("checkpointLocation", checkpoint_loc)
-       .toTable(target_table))
+    def read_stream(self) -> DataFrame:
+        """Read stream using Auto Loader with schema inference."""
+        return (
+            self.spark.readStream.format("cloudFiles")
+            .option("cloudFiles.format", "csv")
+            .option("cloudFiles.schemaLocation", self.schema_location)
+            .option("header", "true")
+            .load(self.landing_path)
+        )
+
+
+class StreamTransformer:
+    """Handles data transformations on streaming DataFrame."""
+
+    @staticmethod
+    def transform(df: DataFrame) -> DataFrame:
+        """Transform streaming data: convert event_time to timestamp."""
+        return df.withColumn("event_ts", to_timestamp("event_time"))
+
+
+class StreamWriter:
+    """Handles stream writing to Delta table."""
+
+    def __init__(self, checkpoint_location: str, target_table: str) -> None:
+        self.checkpoint_location = checkpoint_location
+        self.target_table = target_table
+
+    def write_stream(self, df: DataFrame) -> StreamingQuery:
+        """Write stream to Delta table with batch trigger."""
+        return (
+            df.writeStream.format("delta")
+            .option("checkpointLocation", self.checkpoint_location)
+            .trigger(availableNow=True)
+            .toTable(self.target_table)
+            .start()
+        )
+
+
+class AutoLoaderOrchestrator:
+    """Orchestrates the Auto Loader streaming process."""
+
+    def __init__(
+        self,
+        catalog: str,
+        schema: str,
+        landing_volume: str,
+        schema_location: str,
+        checkpoint_location: str,
+        target_table: str,
+    ) -> None:
+        self.spark = SparkSession.builder.getOrCreate()
+        self.catalog = catalog
+        self.schema = schema
+        self.landing_volume = landing_volume
+        self.target_table = target_table
+
+        self.landing_path = f"/Volumes/{catalog}/{schema}/{landing_volume}"
+        self.schema_loc = f"{self.landing_path}/{schema_location}"
+        self.checkpoint_loc = f"{self.landing_path}/{checkpoint_location}"
+
+        self.reader = StreamReader(self.spark, self.landing_path, self.schema_loc)
+        self.writer = StreamWriter(self.checkpoint_loc, target_table)
+
+    def run(self) -> StreamingQuery:
+        """Execute the Auto Loader workflow."""
+        print(f"Starting Auto Loader: {self.landing_path} -> {self.target_table}")
+        df = self.reader.read_stream()
+        df_transformed = StreamTransformer.transform(df)
+        query = self.writer.write_stream(df_transformed)
+        query.awaitTermination()
+        return query
 
 
 def main() -> None:
@@ -68,9 +116,9 @@ def main() -> None:
         help="Unity Catalog catalog name",
     )
     parser.add_argument(
-        "--schema",
+        "--username",
         required=True,
-        help="Unity Catalog schema name",
+        help="Workspace username (email) - schema name will be derived from this",
     )
     parser.add_argument(
         "--landing-volume",
@@ -92,17 +140,21 @@ def main() -> None:
         required=True,
         help="Fully qualified target Delta table name",
     )
-    
+
     args = parser.parse_args()
-    
-    run_autoloader(
+
+    # Parse schema from username
+    schema = parse_schema_from_username(args.username)
+
+    autoloader = AutoLoaderOrchestrator(
         catalog=args.catalog,
-        schema=args.schema,
+        schema=schema,
         landing_volume=args.landing_volume,
         schema_location=args.schema_location,
         checkpoint_location=args.checkpoint_location,
         target_table=args.target_table,
     )
+    autoloader.run()
 
 
 if __name__ == "__main__":

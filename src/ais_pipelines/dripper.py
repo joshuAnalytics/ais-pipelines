@@ -6,6 +6,18 @@ from pyspark.sql import SparkSession
 from pyspark.dbutils import DBUtils
 
 
+def parse_schema_from_username(username: str) -> str:
+    """Extract schema name from username by removing domain suffix.
+    
+    Args:
+        username: Full username/email)
+    
+    Returns:
+        Schema name without domain
+    """
+    return username.split("@")[0]
+
+
 class UnityUtilities:
     """Handles Unity Catalog operations for catalog, schema, and volume management."""
 
@@ -13,10 +25,6 @@ class UnityUtilities:
         self.spark = spark
         self.catalog = catalog
         self.schema = schema
-
-    def ensure_catalog_exists(self) -> None:
-        """Create catalog if it doesn't exist."""
-        self.spark.sql(f"CREATE CATALOG IF NOT EXISTS {self.catalog}")
 
     def ensure_schema_exists(self) -> None:
         """Create schema if it doesn't exist."""
@@ -32,7 +40,9 @@ class UnityUtilities:
 class FileManager:
     """Manages file listing and filtering operations."""
 
-    def __init__(self, spark: SparkSession, source_path: str, landing_path: str) -> None:
+    def __init__(
+        self, spark: SparkSession, source_path: str, landing_path: str
+    ) -> None:
         self.spark = spark
         self.source_path = source_path
         self.landing_path = landing_path
@@ -43,7 +53,9 @@ class FileManager:
         all_files = self._list_files()
         filtered_by_extension = self._filter_by_extension(all_files)
         landing_files = self._get_landing_files()
-        unprocessed_files = self._filter_unprocessed(filtered_by_extension, landing_files)
+        unprocessed_files = self._filter_unprocessed(
+            filtered_by_extension, landing_files
+        )
         sorted_files = sorted(unprocessed_files, key=lambda x: x.name)
         return sorted_files[:n_per_run]
 
@@ -54,8 +66,7 @@ class FileManager:
     def _filter_by_extension(self, files: List) -> List:
         """Filter files by allowed extensions."""
         return [
-            f for f in files
-            if f.path.endswith(".csv.zst") or f.path.endswith(".zip")
+            f for f in files if f.path.endswith(".csv.zst") or f.path.endswith(".zip")
         ]
 
     def _get_landing_files(self) -> set:
@@ -118,17 +129,45 @@ class DripperOrchestrator:
     def run(self) -> None:
         """Execute the file dripping workflow."""
         self._setup_infrastructure()
+
+        # Check if landing already contains all source files
+        if self._check_if_landing_full():
+            print(
+                "Landing volume already contains all source files. Exiting gracefully."
+            )
+            return
+
         candidates = self._get_candidate_files()
         self._process_files(candidates)
         self._print_summary(len(candidates))
 
     def _setup_infrastructure(self) -> None:
         """Ensure catalog, schema, and volumes exist."""
-        self.unity.ensure_catalog_exists()
         self.unity.ensure_schema_exists()
         self.unity.ensure_volume_exists(self.source_volume)
         self.unity.ensure_volume_exists(self.landing_volume)
-        print(f"Volumes ready: {self.catalog}.{self.schema}.{self.source_volume} -> {self.catalog}.{self.schema}.{self.landing_volume}")
+        print(
+            f"Volumes ready: {self.catalog}.{self.schema}.{self.source_volume} -> {self.catalog}.{self.schema}.{self.landing_volume}"
+        )
+
+    def _check_if_landing_full(self) -> bool:
+        """Check if landing volume already contains all source files.
+
+        Returns:
+            bool: True if landing contains all source files, False otherwise.
+        """
+        # Get all source files filtered by extension
+        all_source_files = self.file_manager._list_files()
+        filtered_source_files = self.file_manager._filter_by_extension(all_source_files)
+        source_filenames = {f.name for f in filtered_source_files}
+
+        # Get all landing files
+        landing_filenames = self.file_manager._get_landing_files()
+
+        # Check if landing contains all source files
+        return (
+            source_filenames.issubset(landing_filenames) and len(source_filenames) > 0
+        )
 
     def _get_candidate_files(self) -> List:
         """Get list of files to process."""
@@ -155,9 +194,9 @@ def main() -> None:
         help="Unity Catalog catalog name",
     )
     parser.add_argument(
-        "--schema",
+        "--username",
         required=True,
-        help="Unity Catalog schema name",
+        help="Workspace username (email) - schema name will be derived from this",
     )
     parser.add_argument(
         "--source-volume",
@@ -184,9 +223,12 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # Parse schema from username
+    schema = parse_schema_from_username(args.username)
+
     dripper = DripperOrchestrator(
         catalog=args.catalog,
-        schema=args.schema,
+        schema=schema,
         source_volume=args.source_volume,
         landing_volume=args.landing_volume,
         n_per_run=args.n_per_run,

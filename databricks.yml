@@ -1,15 +1,18 @@
 bundle:
   name: ais-pipelines
 
+workspace:
+  root_path: /Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+
 variables:
   # Unity Catalog Configuration
   catalog:
     description: "Unity Catalog catalog name"
-    default: ais
+    default: dbacademy
   
-  schema:
-    description: "Unity Catalog schema name"
-    default: ais_assets
+  username:
+    description: "Workspace username (email) - schema name will be derived from this"
+    default: ${workspace.current_user.userName}
   
   # Volume Configuration
   source_volume:
@@ -75,8 +78,8 @@ resources:
             parameters:
               - "--catalog"
               - "${var.catalog}"
-              - "--schema"
-              - "${var.schema}"
+              - "--username"
+              - "${var.username}"
               - "--volume"
               - "${var.download_target_volume}"
               - "--year"
@@ -105,8 +108,8 @@ resources:
             parameters:
               - "--catalog"
               - "${var.catalog}"
-              - "--schema"
-              - "${var.schema}"
+              - "--username"
+              - "${var.username}"
               - "--source-volume"
               - "${var.source_volume}"
               - "--landing-volume"
@@ -115,6 +118,34 @@ resources:
               - "${var.dripper_n_per_run}"
               - "--delete-source"
               - "${var.dripper_delete_source}"
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
+            dependencies:
+              - ./dist/*.whl
+    
+    autoloader:
+      name: "[${bundle.target}] AIS Auto Loader"
+      tasks:
+        - task_key: stream_files
+          python_wheel_task:
+            package_name: ais_pipelines
+            entry_point: autoloader
+            parameters:
+              - "--catalog"
+              - "${var.catalog}"
+              - "--username"
+              - "${var.username}"
+              - "--landing-volume"
+              - "${var.landing_volume}"
+              - "--schema-location"
+              - "${var.autoloader_schema_location}"
+              - "--checkpoint-location"
+              - "${var.autoloader_checkpoint_location}"
+              - "--target-table"
+              - "${var.autoloader_target_table}"
           environment_key: default
       environments:
         - environment_key: default
