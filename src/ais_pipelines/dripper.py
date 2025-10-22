@@ -14,10 +14,6 @@ class UnityUtilities:
         self.catalog = catalog
         self.schema = schema
 
-    def ensure_catalog_exists(self) -> None:
-        """Create catalog if it doesn't exist."""
-        self.spark.sql(f"CREATE CATALOG IF NOT EXISTS {self.catalog}")
-
     def ensure_schema_exists(self) -> None:
         """Create schema if it doesn't exist."""
         self.spark.sql(f"CREATE SCHEMA IF NOT EXISTS {self.catalog}.{self.schema}")
@@ -135,7 +131,6 @@ class DripperOrchestrator:
 
     def _setup_infrastructure(self) -> None:
         """Ensure catalog, schema, and volumes exist."""
-        self.unity.ensure_catalog_exists()
         self.unity.ensure_schema_exists()
         self.unity.ensure_volume_exists(self.source_volume)
         self.unity.ensure_volume_exists(self.landing_volume)

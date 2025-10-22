@@ -1,15 +1,18 @@
 bundle:
   name: ais-pipelines
 
+workspace:
+  root_path: /Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+
 variables:
   # Unity Catalog Configuration
   catalog:
     description: "Unity Catalog catalog name"
-    default: ais
+    default: dbacademy
   
   schema:
     description: "Unity Catalog schema name"
-    default: ais_assets
+    default: labuser12237744_1761062588
   
   # Volume Configuration
   source_volume:
