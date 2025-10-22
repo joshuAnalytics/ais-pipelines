@@ -32,6 +32,15 @@ variables:
     description: "Whether to delete source files after copying"
     default: false
   
+  # Decompressor Configuration
+  decompressor_limit:
+    description: "Number of files to decompress per run (0 = all files)"
+    default: 0
+  
+  decompressor_delete_compressed:
+    description: "Whether to delete compressed files after decompressing"
+    default: false
+  
   # Auto Loader Configuration
   autoloader_schema_location:
     description: "Relative path within landing volume for schemas"
@@ -118,6 +127,32 @@ resources:
               - "${var.dripper_n_per_run}"
               - "--delete-source"
               - "${var.dripper_delete_source}"
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
+            dependencies:
+              - ./dist/*.whl
+    
+    decompress:
+      name: "[${bundle.target}] AIS Decompressor"
+      tasks:
+        - task_key: decompress_files
+          python_wheel_task:
+            package_name: ais_pipelines
+            entry_point: decompress
+            parameters:
+              - "--catalog"
+              - "${var.catalog}"
+              - "--username"
+              - "${var.username}"
+              - "--landing-volume"
+              - "${var.landing_volume}"
+              - "--limit"
+              - "${var.decompressor_limit}"
+              - "--delete-compressed"
+              - "${var.decompressor_delete_compressed}"
           environment_key: default
       environments:
         - environment_key: default

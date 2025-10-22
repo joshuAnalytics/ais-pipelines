@@ -7,9 +7,11 @@ dependencies = [
     "beautifulsoup4",
     "requests",
     "tqdm>=4.67.1",
+    "zstandard>=0.23.0",
 ]
 
 [project.scripts]
 download-ais = "ais_pipelines.download_ais:main"
 dripper = "ais_pipelines.dripper:main"
 autoloader = "ais_pipelines.autoloader:main"
+decompress = "ais_pipelines.decompress:main"
