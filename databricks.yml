@@ -99,7 +99,7 @@ resources:
       environments:
         - environment_key: default
           spec:
-            client: "1"
+            client: "4"
             dependencies:
               - ./dist/*.whl
     
@@ -196,6 +196,12 @@ resources:
           notebook_task:
             notebook_path: ./notebooks/data_quality_tutorial.py
             source: WORKSPACE
+      environments:
+        - environment_key: default
+          spec:
+            client: "4"
+            dependencies:
+              - ./dist/*.whl
 
 targets:
   dev:

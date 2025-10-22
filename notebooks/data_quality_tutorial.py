@@ -20,7 +20,7 @@
 
 # COMMAND ----------
 
-%pip install zstandard requests beautifulsoup4 tqdm --quiet
+# MAGIC %pip install zstandard requests beautifulsoup4 tqdm folium --quiet
 
 # COMMAND ----------
 
@@ -29,143 +29,39 @@ dbutils.library.restartPython()
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 1. Setup and Configuration
+# MAGIC ## Setup and Configuration
 
 # COMMAND ----------
 
 import io
 import zstandard as zstd
 from pyspark.sql import SparkSession
+import folium 
 from pyspark.sql.functions import col, count, countDistinct, to_timestamp, min, max
+from pyspark.databricks.sql import functions as dbf
 from pyspark.sql.types import StructType, StructField, StringType, DoubleType, IntegerType, TimestampType
 
 # COMMAND ----------
 
 # Configuration - Update these values based on your environment
 CATALOG = "dbacademy"
-SCHEMA = "your_schema_name"  # Replace with your schema (derived from username)
-SOURCE_VOLUME = "full_history"
+SCHEMA = "labuser12249714_1761120614"  # Replace with your schema (derived from username)
+SOURCE_VOLUME = "landing"
 TARGET_TABLE = "ais_data"
 
 # Example file to process
-EXAMPLE_FILE = "ais-2025-01-01.csv.zst"
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 2. Verify File Exists
-
-# COMMAND ----------
+EXAMPLE_FILE = "ais-2025-01-01.csv"
 
 # Construct volume path
 volume_path = f"/Volumes/{CATALOG}/{SCHEMA}/{SOURCE_VOLUME}"
 file_path = f"{volume_path}/{EXAMPLE_FILE}"
 
-print(f"Looking for file: {file_path}")
-
-# List files in the volume to verify
-try:
-    files = dbutils.fs.ls(volume_path)
-    print(f"\nFound {len(files)} files in volume:")
-    for f in files[:5]:  # Show first 5 files
-        print(f"  - {f.name} ({f.size:,} bytes)")
-    if len(files) > 5:
-        print(f"  ... and {len(files) - 5} more files")
-except Exception as e:
-    print(f"Error listing volume: {e}")
-
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 3. Decompress the .zst File
-# MAGIC
-# MAGIC The `.csv.zst` files are compressed using Zstandard compression. We'll decompress them in memory and read the CSV data.
-
-# COMMAND ----------
-
-def decompress_zst_file(file_path: str) -> str:
-    """
-    Decompress a .zst file and return the decompressed content as a string.
-    
-    Args:
-        file_path: Path to the .zst file in Unity Catalog volume
-        
-    Returns:
-        Decompressed content as string
-    """
-    # Read the compressed file
-    with open(file_path, 'rb') as compressed_file:
-        compressed_data = compressed_file.read()
-    
-    # Decompress using zstandard
-    dctx = zstd.ZstdDecompressor()
-    decompressed_data = dctx.decompress(compressed_data)
-    
-    # Convert bytes to string
-    return decompressed_data.decode('utf-8')
-
-# COMMAND ----------
-
-# Decompress the file
-print(f"Decompressing {EXAMPLE_FILE}...")
-decompressed_content = decompress_zst_file(file_path)
-
-# Show file size information
-compressed_size = dbutils.fs.ls(file_path)[0].size
-decompressed_size = len(decompressed_content)
-compression_ratio = compressed_size / decompressed_size * 100
-
-print(f"Compressed size: {compressed_size:,} bytes")
-print(f"Decompressed size: {decompressed_size:,} bytes")
-print(f"Compression ratio: {compression_ratio:.1f}%")
-print(f"\nFirst 500 characters of decompressed data:")
-print(decompressed_content[:500])
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 4. Load CSV Data into Spark DataFrame
+# MAGIC ## Load CSV Data into Spark DataFrame
 # MAGIC
 # MAGIC Now we'll parse the decompressed CSV content into a Spark DataFrame.
-
-# COMMAND ----------
-
-# Define the schema for AIS data
-# Note: Actual AIS schema may vary - adjust based on your data
-ais_schema = StructType([
-    StructField("MMSI", IntegerType(), True),
-    StructField("BaseDateTime", StringType(), True),
-    StructField("LAT", DoubleType(), True),
-    StructField("LON", DoubleType(), True),
-    StructField("SOG", DoubleType(), True),  # Speed over ground
-    StructField("COG", DoubleType(), True),  # Course over ground
-    StructField("Heading", DoubleType(), True),
-    StructField("VesselName", StringType(), True),
-    StructField("IMO", StringType(), True),
-    StructField("CallSign", StringType(), True),
-    StructField("VesselType", IntegerType(), True),
-    StructField("Status", StringType(), True),
-    StructField("Length", DoubleType(), True),
-    StructField("Width", DoubleType(), True),
-    StructField("Draft", DoubleType(), True),
-    StructField("Cargo", IntegerType(), True),
-])
-
-# COMMAND ----------
-
-# Create Spark DataFrame from CSV string
-# We'll use StringIO to treat the string as a file-like object
-from io import StringIO
-
-# For demonstration, we can read directly from the CSV file using Spark's built-in CSV reader
-# But first, we need to write the decompressed content to a temporary location
-temp_path = f"{volume_path}/temp_decompressed.csv"
-
-# Write decompressed content to temp file
-with open(temp_path, 'w') as f:
-    f.write(decompressed_content)
-
-print(f"Wrote decompressed data to: {temp_path}")
 
 # COMMAND ----------
 
@@ -173,7 +69,7 @@ print(f"Wrote decompressed data to: {temp_path}")
 df = spark.read \
     .option("header", "true") \
     .option("inferSchema", "true") \
-    .csv(temp_path)
+    .csv(file_path)
 
 # Show schema and sample data
 print("DataFrame Schema:")
@@ -185,7 +81,7 @@ display(df.limit(10))
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 5. Data Quality Checks
+# MAGIC ## Data Quality Checks
 # MAGIC
 # MAGIC Perform basic data quality checks before loading to Delta table.
 
@@ -212,7 +108,7 @@ print(f"Unique vessels (MMSI): {unique_mmsi:,}")
 # Show timestamp range
 df_with_timestamp = df.withColumn(
     "timestamp",
-    to_timestamp(col("BaseDateTime"), "yyyy-MM-dd'T'HH:mm:ss")
+    to_timestamp(col("base_date_time"), "yyyy-MM-dd'T'HH:mm:ss")
 )
 
 timestamp_stats = df_with_timestamp.select(
@@ -228,15 +124,24 @@ print(f"  Latest: {timestamp_stats['max_time']}")
 
 # Geographic bounds check
 geo_stats = df.select(
-    min("LAT").alias("min_lat"),
-    max("LAT").alias("max_lat"),
-    min("LON").alias("min_lon"),
-    max("LON").alias("max_lon")
+    min("latitude").alias("min_lat"),
+    max("latitude").alias("max_lat"),
+    min("longitude").alias("min_lon"),
+    max("longitude").alias("max_lon")
 ).collect()[0]
 
 print("Geographic bounds:")
 print(f"  Latitude: {geo_stats['min_lat']:.4f} to {geo_stats['max_lat']:.4f}")
 print(f"  Longitude: {geo_stats['min_lon']:.4f} to {geo_stats['max_lon']:.4f}")
+
+# COMMAND ----------
+
+
+m = folium.Map(location=[20,0], zoom_start=2)
+folium.Rectangle([[0.5566, -174.5605], [50.1100, 157.8722]],
+                 weight=2, fill=True, fill_opacity=0.15).add_to(m)
+m  # renders in the notebook output
+
 
 # COMMAND ----------
 
@@ -269,60 +174,136 @@ print(f"Successfully created Delta table: {full_table_name}")
 
 # COMMAND ----------
 
-# Verify the table was created
-print("Table information:")
-spark.sql(f"DESCRIBE EXTENDED {full_table_name}").show(truncate=False)
-
-# COMMAND ----------
-
-# Query the table
-print(f"Sample query from {full_table_name}:")
-result_df = spark.sql(f"""
-    SELECT 
-        MMSI,
-        timestamp,
-        LAT,
-        LON,
-        SOG,
-        VesselName
-    FROM {full_table_name}
-    ORDER BY timestamp
-    LIMIT 10
-""")
-
-display(result_df)
+# MAGIC %md
+# MAGIC ## 7. Spatial Data Processing & H3 Indexing
+# MAGIC
+# MAGIC Now we'll enhance the data with spatial types and H3 indices for geospatial analysis.
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 7. Cleanup
+# MAGIC ### 7.1 Cast LAT/LON to Spatial Point Type
 # MAGIC
-# MAGIC Remove temporary files.
+# MAGIC We'll use Databricks' built-in spatial functions to create POINT geometries from latitude and longitude coordinates.
+# MAGIC Note: ST_Point expects (longitude, latitude) order per WGS84 standard.
 
 # COMMAND ----------
 
-# Remove the temporary decompressed file
-try:
-    dbutils.fs.rm(temp_path)
-    print(f"Cleaned up temporary file: {temp_path}")
-except Exception as e:
-    print(f"Error cleaning up temp file: {e}")
+from pyspark.sql.functions import expr
+
+# Read the Delta table we created
+spatial_df = spark.table(full_table_name)
+
+# Add spatial point column
+# ST_Point(lon, lat) creates a POINT geometry in WGS84 (SRID 4326)
+spatial_df = spatial_df.withColumn(
+    "point_geom",
+    expr("st_point(longitude, latitude, 4326)")
+)
+
+print("Added spatial point geometry column")
+
+# COMMAND ----------
+
+#write back down to delta table
+spatial_df.write \
+    .format("delta") \
+    .mode("overwrite") \
+    .option("overwriteSchema", "true") \
+    .saveAsTable(full_table_name)
+
+# COMMAND ----------
+
+spark.sql(f"SELECT base_date_time,point_geom FROM {full_table_name} LIMIT 5").show(truncate=False)
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Summary
+# MAGIC ### 7.2 Validate Spatial Data
 # MAGIC
-# MAGIC This notebook demonstrated:
-# MAGIC 1. ✅ Decompressing `.csv.zst` files using zstandard
-# MAGIC 2. ✅ Loading CSV data into Spark DataFrames
-# MAGIC 3. ✅ Performing data quality checks
-# MAGIC 4. ✅ Creating Delta tables in Unity Catalog
-# MAGIC
-# MAGIC ### Next Steps
-# MAGIC - Implement incremental loading for multiple files
-# MAGIC - Add more comprehensive data quality checks
-# MAGIC - Set up data quality monitoring
-# MAGIC - Create views or derived tables for analysis
+# MAGIC Use ST_IsValid to check that our point geometries are valid.
+# MAGIC This ensures the LAT/LON values create proper spatial objects.
 
 # COMMAND ----------
+
+# Add validation for each row - ST_IsValid Returns true if the input GEOMETRY value is a valid geometry in the OGC sense.
+spatial_df = spatial_df.withColumn(
+    "is_valid_geom",
+    expr("ST_IsValid(point_geom)")
+)
+
+# COMMAND ----------
+
+# Add the new column with a default value
+spark.sql(
+    f"""
+    ALTER TABLE {full_table_name}
+    ADD COLUMNS (is_valid_geom BOOLEAN)
+    """
+)
+
+# Update the new column with the computed value
+spark.sql(
+    f"""
+    UPDATE {full_table_name}
+    SET is_valid_geom = ST_IsValid(point_geom)
+    """
+)
+
+# COMMAND ----------
+
+# check if there are any invalid rows 
+counts_df = spark.sql(
+    f"""
+    SELECT
+        is_valid_geom,
+        COUNT(*) AS count
+    FROM
+        {full_table_name}
+    GROUP BY
+        is_valid_geom
+    """
+)
+display(counts_df)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 7.3 Build H3 Spatial Indices
+# MAGIC
+# MAGIC Create H3 hexagonal indices at multiple resolutions for efficient spatial queries.
+# MAGIC
+# MAGIC H3 Resolution Reference:
+# MAGIC - **Resolution 9**: ~174m average hexagon edge length (~0.10 km²) - Good for regional analysis
+# MAGIC - **Resolution 10**: ~65m average hexagon edge length (~0.01 km²) - Good for local area analysis  
+# MAGIC - **Resolution 11**: ~25m average hexagon edge length (~0.001 km²) - Good for precise location tracking
+
+# COMMAND ----------
+
+# Add new columns for H3 indices (remove IF NOT EXISTS)
+spark.sql(
+    f"""
+    ALTER TABLE {full_table_name}
+    ADD COLUMNS (
+        h3_res9 STRING,
+        h3_res10 STRING,
+        h3_res11 STRING
+    )
+    """
+)
+
+# COMMAND ----------
+
+spark.sql(
+    f"""
+    UPDATE {full_table_name}
+    SET
+        h3_res9 = h3_pointash3(st_astext(point_geom), 9),
+        h3_res10 = h3_pointash3(st_astext(point_geom), 10),
+        h3_res11 = h3_pointash3(st_astext(point_geom), 11)
+    """
+)
+
+# COMMAND ----------
+
+spark.sql(f"SELECT base_date_time,point_geom,h3_res9 FROM {full_table_name} LIMIT 5").show(truncate=False)
