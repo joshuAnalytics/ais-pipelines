@@ -2,7 +2,17 @@
 
 ## About AIS Data
 
-This project works with Automatic Identification System (AIS) data from NOAA's Office for Coastal Management. AIS is a maritime vessel tracking system that broadcasts ship positions, speed, course, and other vessel information. NOAA's Office for Coastal Management serves to increase the resilience of the nation's coastal zone by helping communities and businesses take the actions needed to keep coastal residents safe, the economy sound, and natural resources functioning. The AIS data provided by NOAA supports critical coastal management decisions, marine transportation planning, environmental protection, and maritime safety analysis. 
+This project works with Automatic Identification System (AIS) data from NOAA's Office for Coastal Management. AIS is a maritime vessel tracking system that broadcasts ship positions, speed, course, and other vessel information. NOAA's Office for Coastal Management serves to increase the resilience of the nation's coastal zone by helping communities and businesses take the actions needed to keep coastal residents safe, the economy sound, and natural resources functioning. The AIS data provided by NOAA supports critical coastal management decisions, marine transportation planning, environmental protection, and maritime safety analysis.
+
+## Project Overview
+
+This project implements a complete data pipeline for processing AIS data on Databricks:
+
+1. **Download** - Retrieves compressed AIS files from NOAA's public archive
+2. **Decompress** - Extracts .csv.zst and .zip files for processing
+3. **Dripper** - Gradually releases files to a landing volume for controlled ingestion
+4. **Auto Loader** - Streams data from landing volume to Delta tables using Databricks Auto Loader
+
 
 ## download ais
 
