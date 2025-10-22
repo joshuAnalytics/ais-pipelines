@@ -72,19 +72,20 @@ This creates a `.whl` file in the `dist/` directory that contains the package an
 
 Deploy using Databricks Asset Bundles:
 
-```bash
-# Build the wheel first
-uv build
-
+```
 # Deploy to dev environment
 databricks bundle deploy
 
-# Run test (downloads 1 file based on variables in databricks.yml)
+# Download data
 databricks bundle run download_ais_test
 
-# Deploy to production
-databricks bundle deploy --target prod
-databricks bundle run download_ais_test --target prod
+```
+
+# Clear local terraform cache
+if you are switching between different workspaces, you may need to clear the terraform cache in your local .databricks file. 
+
+```bash
+rm -rf .databricks
 ```
 
 ### Variable overrides

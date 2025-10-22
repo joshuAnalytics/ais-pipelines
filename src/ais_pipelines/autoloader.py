@@ -10,6 +10,18 @@ from pyspark.sql.streaming import StreamingQuery
 from pyspark.sql.functions import to_timestamp
 
 
+def parse_schema_from_username(username: str) -> str:
+    """Extract schema name from username by removing domain suffix.
+    
+    Args:
+        username: Full username/email)
+    
+    Returns:
+        Schema name without domain
+    """
+    return username.split("@")[0]
+
+
 class StreamReader:
     """Handles Auto Loader stream reading configuration."""
 
@@ -104,9 +116,9 @@ def main() -> None:
         help="Unity Catalog catalog name",
     )
     parser.add_argument(
-        "--schema",
+        "--username",
         required=True,
-        help="Unity Catalog schema name",
+        help="Workspace username (email) - schema name will be derived from this",
     )
     parser.add_argument(
         "--landing-volume",
@@ -131,9 +143,12 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # Parse schema from username
+    schema = parse_schema_from_username(args.username)
+
     autoloader = AutoLoaderOrchestrator(
         catalog=args.catalog,
-        schema=args.schema,
+        schema=schema,
         landing_volume=args.landing_volume,
         schema_location=args.schema_location,
         checkpoint_location=args.checkpoint_location,

@@ -7,6 +7,18 @@ from bs4 import BeautifulSoup
 from pyspark.sql import SparkSession
 
 
+def parse_schema_from_username(username: str) -> str:
+    """Extract schema name from username by removing @vocareum.com suffix.
+    
+    Args:
+        username: Full username/email (e.g., 'labuser12249714_1761120614@vocareum.com')
+    
+    Returns:
+        Schema name without domain (e.g., 'labuser12249714_1761120614')
+    """
+    return username.split("@")[0]
+
+
 class UnityUtilities:
     """Handles Unity Catalog operations for catalog, schema, and volume management."""
 
@@ -175,9 +187,9 @@ def main() -> None:
         help="Unity Catalog catalog name",
     )
     parser.add_argument(
-        "--schema",
+        "--username",
         required=True,
-        help="Unity Catalog schema name",
+        help="Workspace username (email) - schema name will be derived from this",
     )
     parser.add_argument(
         "--volume",
@@ -199,9 +211,9 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Use all parameters from command-line args
+    # Parse schema from username
     catalog = args.catalog
-    schema = args.schema
+    schema = parse_schema_from_username(args.username)
     volume = args.volume
     year = args.year
     limit = args.limit
