@@ -124,29 +124,36 @@ class FileDecompressor:
             return False
 
     def _decompress_zstd(self, file_info) -> bool:
-        """Decompress a .csv.zst file using zstandard."""
+        """Decompress a .csv.zst file using streaming zstandard decompression.
+        
+        Uses direct file system access to Unity Catalog volumes with streaming
+        to handle large files efficiently without temp files or memory issues.
+        """
         if zstd is None:
             raise ImportError("zstandard library is not installed. Please install it to decompress .zst files.")
         
-        # Read compressed file
-        compressed_data = self.dbutils.fs.head(file_info.path, 999999999)  # Read entire file
-        compressed_bytes = compressed_data.encode('latin-1')  # Convert string back to bytes
+        # Define chunk size for reading decompressed data (50MB)
+        CHUNK_SIZE = 50 * 1024 * 1024
         
-        # Alternative: Use Databricks built-in file operations
-        # This reads the file as binary directly
-        with self.dbutils.fs.open(file_info.path, 'rb') as f:
-            compressed_bytes = f.read()
+        # Convert dbfs:// path to local file system path for direct access
+        input_path = file_info.path.replace('dbfs:', '')
+        output_path = input_path.replace('.csv.zst', '.csv')
         
-        # Decompress
+        # Create decompressor
         dctx = zstd.ZstdDecompressor()
-        decompressed_data = dctx.decompress(compressed_bytes)
         
-        # Write decompressed file
-        output_path = file_info.path.replace('.csv.zst', '.csv')
-        
-        # Write using dbutils
-        with self.dbutils.fs.open(output_path, 'wb') as f:
-            f.write(decompressed_data)
+        # Use native Python file operations for direct Unity Catalog volume access
+        with open(input_path, 'rb') as input_file:
+            with open(output_path, 'wb') as output_file:
+                # Create a streaming reader that decompresses on-the-fly
+                with dctx.stream_reader(input_file) as reader:
+                    while True:
+                        # Read decompressed data in chunks
+                        chunk = reader.read(CHUNK_SIZE)
+                        if not chunk:
+                            break
+                        # Write chunk to output
+                        output_file.write(chunk)
         
         print(f"Decompressed: {file_info.name} -> {output_path.split('/')[-1]}")
         
@@ -158,22 +165,23 @@ class FileDecompressor:
         return True
 
     def _decompress_zip(self, file_info) -> bool:
-        """Decompress a .zip file."""
+        """Decompress a .zip file using direct file system access."""
         import zipfile
         
-        # Read compressed file
-        with self.dbutils.fs.open(file_info.path, 'rb') as f:
-            zip_data = f.read()
+        # Convert dbfs:// path to local file system path for direct access
+        input_path = file_info.path.replace('dbfs:', '')
+        landing_path_local = self.landing_path.replace('dbfs:', '')
         
-        # Extract files from zip
-        with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+        # Extract files from zip using direct file access
+        with zipfile.ZipFile(input_path, 'r') as zf:
             for member in zf.namelist():
                 if member.endswith('.csv'):
                     # Extract to landing volume
-                    output_path = f"{self.landing_path}/{member}"
+                    output_path = f"{landing_path_local}/{member}"
                     
+                    # Extract directly to the output path
                     with zf.open(member) as source:
-                        with self.dbutils.fs.open(output_path, 'wb') as target:
+                        with open(output_path, 'wb') as target:
                             target.write(source.read())
                     
                     print(f"Extracted: {member} from {file_info.name}")
