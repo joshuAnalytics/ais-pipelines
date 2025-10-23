@@ -3,51 +3,38 @@
 # MAGIC # AIS Data Quality Tutorial
 # MAGIC
 # MAGIC This notebook demonstrates:
-# MAGIC 1. Decompressing `.csv.zst` files from the Unity Catalog volume
-# MAGIC 2. Loading CSV data into a Delta table
-# MAGIC 3. Basic data quality checks
+# MAGIC * Loading CSV data into a Delta table
+# MAGIC * Basic data quality checks
 # MAGIC
-# MAGIC ## Prerequisites
-# MAGIC - Files downloaded to Unity Catalog volume (via `download_ais` job)
-# MAGIC - Python wheel built and uploaded via Databricks Asset Bundle
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## 0. Install Dependencies
-# MAGIC
-# MAGIC Install required Python packages for decompression and data processing.
-
-# COMMAND ----------
-
-# MAGIC %pip install zstandard requests beautifulsoup4 tqdm folium --quiet
-
-# COMMAND ----------
-
+# MAGIC %pip install -e ../ --quiet
 dbutils.library.restartPython()
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## Setup and Configuration
-
-# COMMAND ----------
-
-import io
-import zstandard as zstd
-from pyspark.sql import SparkSession
-import folium 
+import folium
 from pyspark.sql.functions import col, count, countDistinct, to_timestamp, min, max
 from pyspark.databricks.sql import functions as dbf
-from pyspark.sql.types import StructType, StructField, StringType, DoubleType, IntegerType, TimestampType
+from pyspark.sql.types import (
+    StructType,
+    StructField,
+    StringType,
+    DoubleType,
+    IntegerType,
+    TimestampType,
+)
 
 # COMMAND ----------
 
 # Configuration - Update these values based on your environment
 CATALOG = "dbacademy"
-SCHEMA = "labuser12249714_1761120614"  # Replace with your schema (derived from username)
+SCHEMA = (
+    "labuser12249714_1761120614"  # Replace with your schema (derived from username)
+)
 SOURCE_VOLUME = "landing"
-TARGET_TABLE = "ais_data"
+TARGET_TABLE = "ais_data_sample"
 
 # Example file to process
 EXAMPLE_FILE = "ais-2025-01-01.csv"
@@ -66,10 +53,7 @@ file_path = f"{volume_path}/{EXAMPLE_FILE}"
 # COMMAND ----------
 
 # Read CSV into Spark DataFrame
-df = spark.read \
-    .option("header", "true") \
-    .option("inferSchema", "true") \
-    .csv(file_path)
+df = spark.read.option("header", "true").option("inferSchema", "true").csv(file_path)
 
 # Show schema and sample data
 print("DataFrame Schema:")
@@ -97,7 +81,9 @@ null_counts = df.select([count(col(c)).alias(c) for c in df.columns]).collect()[
 for col_name in df.columns:
     null_count = total_rows - null_counts[col_name]
     if null_count > 0:
-        print(f"  {col_name}: {null_count:,} nulls ({null_count/total_rows*100:.1f}%)")
+        print(
+            f"  {col_name}: {null_count:,} nulls ({null_count / total_rows * 100:.1f}%)"
+        )
 
 # COMMAND ----------
 
@@ -107,13 +93,11 @@ print(f"Unique vessels (MMSI): {unique_mmsi:,}")
 
 # Show timestamp range
 df_with_timestamp = df.withColumn(
-    "timestamp",
-    to_timestamp(col("base_date_time"), "yyyy-MM-dd'T'HH:mm:ss")
+    "timestamp", to_timestamp(col("base_date_time"), "yyyy-MM-dd'T'HH:mm:ss")
 )
 
 timestamp_stats = df_with_timestamp.select(
-    min("timestamp").alias("min_time"),
-    max("timestamp").alias("max_time")
+    min("timestamp").alias("min_time"), max("timestamp").alias("max_time")
 ).collect()[0]
 
 print(f"\nTimestamp range:")
@@ -127,7 +111,7 @@ geo_stats = df.select(
     min("latitude").alias("min_lat"),
     max("latitude").alias("max_lat"),
     min("longitude").alias("min_lon"),
-    max("longitude").alias("max_lon")
+    max("longitude").alias("max_lon"),
 ).collect()[0]
 
 print("Geographic bounds:")
@@ -136,17 +120,26 @@ print(f"  Longitude: {geo_stats['min_lon']:.4f} to {geo_stats['max_lon']:.4f}")
 
 # COMMAND ----------
 
+# Calculate center from actual data bounds
+center_lat = (geo_stats['min_lat'] + geo_stats['max_lat']) / 2
+center_lon = (geo_stats['min_lon'] + geo_stats['max_lon']) / 2
 
-m = folium.Map(location=[20,0], zoom_start=2)
-folium.Rectangle([[0.5566, -174.5605], [50.1100, 157.8722]],
-                 weight=2, fill=True, fill_opacity=0.15).add_to(m)
+# Create map centered on actual data with dynamic bounds
+m = folium.Map(location=[center_lat, center_lon], zoom_start=2)
+folium.Rectangle(
+    [[geo_stats['min_lat'], geo_stats['min_lon']], 
+     [geo_stats['max_lat'], geo_stats['max_lon']]], 
+    weight=2, 
+    fill=True, 
+    fill_opacity=0.15
+).add_to(m)
 m  # renders in the notebook output
 
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 6. Create Delta Table
+# MAGIC ## Create Delta Table
 # MAGIC
 # MAGIC Now we'll write the data to a Delta table in Unity Catalog.
 
@@ -164,146 +157,145 @@ full_table_name = f"{CATALOG}.{SCHEMA}.{TARGET_TABLE}"
 # Using overwrite mode for this example - use append for incremental loads
 print(f"Writing data to Delta table: {full_table_name}")
 
-df_with_timestamp.write \
-    .format("delta") \
-    .mode("overwrite") \
-    .option("overwriteSchema", "true") \
-    .saveAsTable(full_table_name)
+df_with_timestamp.write.format("delta").mode("overwrite").option(
+    "overwriteSchema", "true"
+).saveAsTable(full_table_name)
 
 print(f"Successfully created Delta table: {full_table_name}")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 7. Spatial Data Processing & H3 Indexing
+# MAGIC ## Spatial Data Processing & H3 Indexing
 # MAGIC
-# MAGIC Now we'll enhance the data with spatial types and H3 indices for geospatial analysis.
+# MAGIC Now we'll enhance the data with spatial types and H3 indices for geospatial analysis using a single SQL operation.
+# MAGIC This approach lets Databricks infer the GEOMETRY type automatically from the ST_Point function.
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### 7.1 Cast LAT/LON to Spatial Point Type
+# MAGIC ### Add All Spatial Columns in One Operation
 # MAGIC
-# MAGIC We'll use Databricks' built-in spatial functions to create POINT geometries from latitude and longitude coordinates.
-# MAGIC Note: ST_Point expects (longitude, latitude) order per WGS84 standard.
-
-# COMMAND ----------
-
-from pyspark.sql.functions import expr
-
-# Read the Delta table we created
-spatial_df = spark.table(full_table_name)
-
-# Add spatial point column
-# ST_Point(lon, lat) creates a POINT geometry in WGS84 (SRID 4326)
-spatial_df = spatial_df.withColumn(
-    "point_geom",
-    expr("st_point(longitude, latitude, 4326)")
-)
-
-print("Added spatial point geometry column")
-
-# COMMAND ----------
-
-#write back down to delta table
-spatial_df.write \
-    .format("delta") \
-    .mode("overwrite") \
-    .option("overwriteSchema", "true") \
-    .saveAsTable(full_table_name)
-
-# COMMAND ----------
-
-spark.sql(f"SELECT base_date_time,point_geom FROM {full_table_name} LIMIT 5").show(truncate=False)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### 7.2 Validate Spatial Data
+# MAGIC We use CREATE OR REPLACE TABLE with SELECT to add all spatial columns at once:
+# MAGIC - **point_geom**: POINT geometry created from lat/lon using ST_Point (longitude, latitude, SRID)
+# MAGIC - **is_valid_geom**: Boolean validation using ST_IsValid
+# MAGIC - **h3_res9/10/11**: H3 indices at multiple resolutions for spatial indexing
 # MAGIC
-# MAGIC Use ST_IsValid to check that our point geometries are valid.
-# MAGIC This ensures the LAT/LON values create proper spatial objects.
+# MAGIC H3 Resolution Reference:
+# MAGIC - **Resolution 9**: ~174m average hexagon edge length (~0.10 km²) - Good for regional analysis
+# MAGIC - **Resolution 10**: ~65m average hexagon edge length (~0.01 km²) - Good for local area analysis
+# MAGIC - **Resolution 11**: ~25m average hexagon edge length (~0.001 km²) - Good for precise location tracking
 
 # COMMAND ----------
 
-# Add validation for each row - ST_IsValid Returns true if the input GEOMETRY value is a valid geometry in the OGC sense.
-spatial_df = spatial_df.withColumn(
-    "is_valid_geom",
-    expr("ST_IsValid(point_geom)")
-)
+print(f"Adding spatial columns to {full_table_name}...")
+
+# Create table with all spatial columns using CREATE OR REPLACE TABLE AS SELECT
+# This lets Databricks infer the GEOMETRY type from ST_Point automatically
+spark.sql(f"""
+    CREATE OR REPLACE TABLE {full_table_name} AS
+    SELECT 
+        *,
+        ST_Point(longitude, latitude, 4326) AS point_geom,
+        ST_IsValid(ST_Point(longitude, latitude, 4326)) AS is_valid_geom,
+        h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 6) AS h3_res6,
+        h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 7) AS h3_res7,
+        h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 8) AS h3_res8,
+        h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 9) AS h3_res9
+    FROM {full_table_name}
+""")
+
+print("Successfully added all spatial columns!")
 
 # COMMAND ----------
 
-# Add the new column with a default value
-spark.sql(
-    f"""
-    ALTER TABLE {full_table_name}
-    ADD COLUMNS (is_valid_geom BOOLEAN)
-    """
-)
-
-# Update the new column with the computed value
-spark.sql(
-    f"""
-    UPDATE {full_table_name}
-    SET is_valid_geom = ST_IsValid(point_geom)
-    """
-)
+# Verify all spatial columns were created correctly
+print("Sample data with spatial columns:")
+spark.sql(f"""
+    SELECT 
+        base_date_time,
+        latitude,
+        longitude,
+        point_geom,
+        is_valid_geom,
+        h3_res6,
+        h3_res7,
+        h3_res8,
+        h3_res9
+    FROM {full_table_name} 
+    LIMIT 5
+""").show(truncate=False)
 
 # COMMAND ----------
 
-# check if there are any invalid rows 
-counts_df = spark.sql(
-    f"""
+# Check if there are any invalid geometries
+print("\nGeometry validation summary:")
+counts_df = spark.sql(f"""
     SELECT
         is_valid_geom,
         COUNT(*) AS count
-    FROM
-        {full_table_name}
-    GROUP BY
-        is_valid_geom
-    """
-)
+    FROM {full_table_name}
+    GROUP BY is_valid_geom
+""")
+
 display(counts_df)
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### 7.3 Build H3 Spatial Indices
+# MAGIC ## Aggregate Data by H3 Resolutions and Hour of Day
 # MAGIC
-# MAGIC Create H3 hexagonal indices at multiple resolutions for efficient spatial queries.
+# MAGIC Create aggregation tables for multiple H3 resolutions (6, 7, 8, 9) to support different zoom levels in visualization.
 # MAGIC
-# MAGIC H3 Resolution Reference:
-# MAGIC - **Resolution 9**: ~174m average hexagon edge length (~0.10 km²) - Good for regional analysis
-# MAGIC - **Resolution 10**: ~65m average hexagon edge length (~0.01 km²) - Good for local area analysis  
-# MAGIC - **Resolution 11**: ~25m average hexagon edge length (~0.001 km²) - Good for precise location tracking
+# MAGIC Resolution Reference:
+# MAGIC - **Resolution 6**: ~36 km² per hex - Continental/ocean-wide patterns
+# MAGIC - **Resolution 7**: ~5 km² per hex - Regional shipping lanes
+# MAGIC - **Resolution 8**: ~0.7 km² per hex - Port areas and coastal zones
+# MAGIC - **Resolution 9**: ~0.1 km² per hex - Detailed vessel movements
 
 # COMMAND ----------
 
-# Add new columns for H3 indices (remove IF NOT EXISTS)
-spark.sql(
-    f"""
-    ALTER TABLE {full_table_name}
-    ADD COLUMNS (
-        h3_res9 STRING,
-        h3_res10 STRING,
-        h3_res11 STRING
-    )
+# Base aggregation table name
+base_agg_table_name = f"{CATALOG}.{SCHEMA}.{TARGET_TABLE}_agg"
+
+# Create aggregation tables for each resolution
+for resolution in [6, 7, 8, 9]:
+    print(f"\n{'='*60}")
+    print(f"Creating aggregation for resolution {resolution}...")
+    print(f"{'='*60}")
+    
+    h3_column = f"h3_res{resolution}"
+    agg_table_name = f"{base_agg_table_name}_res{resolution}"
+    
+    aggregation_query = f"""
+        SELECT 
+            {h3_column},
+            HOUR(timestamp) AS hour_of_day,
+            COUNT(DISTINCT mmsi) AS unique_vessels,
+            COUNT(*) AS total_records
+        FROM {full_table_name}
+        GROUP BY {h3_column}, HOUR(timestamp)
+        ORDER BY {h3_column}, hour_of_day
     """
-)
+    
+    print(f"Creating table: {agg_table_name}")
+    
+    # Execute aggregation and write to Delta table
+    agg_df = spark.sql(aggregation_query)
+    agg_df.write.format("delta").mode("overwrite").saveAsTable(agg_table_name)
+    
+    # Show statistics
+    total_hexagons = agg_df.select(h3_column).distinct().count()
+    total_records = agg_df.count()
+    
+    print(f"✓ Successfully created: {agg_table_name}")
+    print(f"  - Unique hexagons: {total_hexagons:,}")
+    print(f"  - Total aggregated records: {total_records:,}")
+    
+    # Display sample
+    print(f"\nSample data:")
+    display(agg_df.limit(10))
 
-# COMMAND ----------
-
-spark.sql(
-    f"""
-    UPDATE {full_table_name}
-    SET
-        h3_res9 = h3_pointash3(st_astext(point_geom), 9),
-        h3_res10 = h3_pointash3(st_astext(point_geom), 10),
-        h3_res11 = h3_pointash3(st_astext(point_geom), 11)
-    """
-)
-
-# COMMAND ----------
-
-spark.sql(f"SELECT base_date_time,point_geom,h3_res9 FROM {full_table_name} LIMIT 5").show(truncate=False)
+print(f"\n{'='*60}")
+print("All aggregation tables created successfully!")
+print(f"{'='*60}")
