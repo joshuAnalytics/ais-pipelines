@@ -20,7 +20,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install zstandard requests beautifulsoup4 tqdm folium --quiet
+# MAGIC %pip install -e ../ --quiet
 
 # COMMAND ----------
 
