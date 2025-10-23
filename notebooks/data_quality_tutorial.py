@@ -36,16 +36,25 @@ dbutils.library.restartPython()
 import io
 import zstandard as zstd
 from pyspark.sql import SparkSession
-import folium 
+import folium
 from pyspark.sql.functions import col, count, countDistinct, to_timestamp, min, max
 from pyspark.databricks.sql import functions as dbf
-from pyspark.sql.types import StructType, StructField, StringType, DoubleType, IntegerType, TimestampType
+from pyspark.sql.types import (
+    StructType,
+    StructField,
+    StringType,
+    DoubleType,
+    IntegerType,
+    TimestampType,
+)
 
 # COMMAND ----------
 
 # Configuration - Update these values based on your environment
 CATALOG = "dbacademy"
-SCHEMA = "labuser12249714_1761120614"  # Replace with your schema (derived from username)
+SCHEMA = (
+    "labuser12249714_1761120614"  # Replace with your schema (derived from username)
+)
 SOURCE_VOLUME = "landing"
 TARGET_TABLE = "ais_data_sample"
 
@@ -66,10 +75,7 @@ file_path = f"{volume_path}/{EXAMPLE_FILE}"
 # COMMAND ----------
 
 # Read CSV into Spark DataFrame
-df = spark.read \
-    .option("header", "true") \
-    .option("inferSchema", "true") \
-    .csv(file_path)
+df = spark.read.option("header", "true").option("inferSchema", "true").csv(file_path)
 
 # Show schema and sample data
 print("DataFrame Schema:")
@@ -97,7 +103,9 @@ null_counts = df.select([count(col(c)).alias(c) for c in df.columns]).collect()[
 for col_name in df.columns:
     null_count = total_rows - null_counts[col_name]
     if null_count > 0:
-        print(f"  {col_name}: {null_count:,} nulls ({null_count/total_rows*100:.1f}%)")
+        print(
+            f"  {col_name}: {null_count:,} nulls ({null_count / total_rows * 100:.1f}%)"
+        )
 
 # COMMAND ----------
 
@@ -107,13 +115,11 @@ print(f"Unique vessels (MMSI): {unique_mmsi:,}")
 
 # Show timestamp range
 df_with_timestamp = df.withColumn(
-    "timestamp",
-    to_timestamp(col("base_date_time"), "yyyy-MM-dd'T'HH:mm:ss")
+    "timestamp", to_timestamp(col("base_date_time"), "yyyy-MM-dd'T'HH:mm:ss")
 )
 
 timestamp_stats = df_with_timestamp.select(
-    min("timestamp").alias("min_time"),
-    max("timestamp").alias("max_time")
+    min("timestamp").alias("min_time"), max("timestamp").alias("max_time")
 ).collect()[0]
 
 print(f"\nTimestamp range:")
@@ -127,7 +133,7 @@ geo_stats = df.select(
     min("latitude").alias("min_lat"),
     max("latitude").alias("max_lat"),
     min("longitude").alias("min_lon"),
-    max("longitude").alias("max_lon")
+    max("longitude").alias("max_lon"),
 ).collect()[0]
 
 print("Geographic bounds:")
@@ -137,9 +143,10 @@ print(f"  Longitude: {geo_stats['min_lon']:.4f} to {geo_stats['max_lon']:.4f}")
 # COMMAND ----------
 
 
-m = folium.Map(location=[20,0], zoom_start=2)
-folium.Rectangle([[0.5566, -174.5605], [50.1100, 157.8722]],
-                 weight=2, fill=True, fill_opacity=0.15).add_to(m)
+m = folium.Map(location=[20, 0], zoom_start=2)
+folium.Rectangle(
+    [[0.5566, -174.5605], [50.1100, 157.8722]], weight=2, fill=True, fill_opacity=0.15
+).add_to(m)
 m  # renders in the notebook output
 
 
@@ -164,11 +171,9 @@ full_table_name = f"{CATALOG}.{SCHEMA}.{TARGET_TABLE}"
 # Using overwrite mode for this example - use append for incremental loads
 print(f"Writing data to Delta table: {full_table_name}")
 
-df_with_timestamp.write \
-    .format("delta") \
-    .mode("overwrite") \
-    .option("overwriteSchema", "true") \
-    .saveAsTable(full_table_name)
+df_with_timestamp.write.format("delta").mode("overwrite").option(
+    "overwriteSchema", "true"
+).saveAsTable(full_table_name)
 
 print(f"Successfully created Delta table: {full_table_name}")
 
@@ -187,12 +192,12 @@ print(f"Successfully created Delta table: {full_table_name}")
 # MAGIC
 # MAGIC We use CREATE OR REPLACE TABLE with SELECT to add all spatial columns at once:
 # MAGIC - **point_geom**: POINT geometry created from lat/lon using ST_Point (longitude, latitude, SRID)
-# MAGIC - **is_valid_geom**: Boolean validation using ST_IsValid 
+# MAGIC - **is_valid_geom**: Boolean validation using ST_IsValid
 # MAGIC - **h3_res9/10/11**: H3 indices at multiple resolutions for spatial indexing
 # MAGIC
 # MAGIC H3 Resolution Reference:
 # MAGIC - **Resolution 9**: ~174m average hexagon edge length (~0.10 km²) - Good for regional analysis
-# MAGIC - **Resolution 10**: ~65m average hexagon edge length (~0.01 km²) - Good for local area analysis  
+# MAGIC - **Resolution 10**: ~65m average hexagon edge length (~0.01 km²) - Good for local area analysis
 # MAGIC - **Resolution 11**: ~25m average hexagon edge length (~0.001 km²) - Good for precise location tracking
 
 # COMMAND ----------
