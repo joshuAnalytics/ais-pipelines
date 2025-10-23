@@ -47,7 +47,7 @@ from pyspark.sql.types import StructType, StructField, StringType, DoubleType, I
 CATALOG = "dbacademy"
 SCHEMA = "labuser12249714_1761120614"  # Replace with your schema (derived from username)
 SOURCE_VOLUME = "landing"
-TARGET_TABLE = "ais_data"
+TARGET_TABLE = "ais_data_sample"
 
 # Example file to process
 EXAMPLE_FILE = "ais-2025-01-01.csv"
@@ -177,96 +177,18 @@ print(f"Successfully created Delta table: {full_table_name}")
 # MAGIC %md
 # MAGIC ## 7. Spatial Data Processing & H3 Indexing
 # MAGIC
-# MAGIC Now we'll enhance the data with spatial types and H3 indices for geospatial analysis.
+# MAGIC Now we'll enhance the data with spatial types and H3 indices for geospatial analysis using a single SQL operation.
+# MAGIC This approach lets Databricks infer the GEOMETRY type automatically from the ST_Point function.
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### 7.1 Cast LAT/LON to Spatial Point Type
+# MAGIC ### Add All Spatial Columns in One Operation
 # MAGIC
-# MAGIC We'll use Databricks' built-in spatial functions to create POINT geometries from latitude and longitude coordinates.
-# MAGIC Note: ST_Point expects (longitude, latitude) order per WGS84 standard.
-
-# COMMAND ----------
-
-# Add point_geom column to table schema
-# Note: If column already exists, this will fail - only run on fresh tables
-spark.sql(f"""
-    ALTER TABLE {full_table_name}
-    ADD COLUMNS (point_geom GEOMETRY)
-""")
-
-print("Added point_geom column to table schema")
-
-# COMMAND ----------
-
-# Populate point_geom from latitude and longitude using ST_Point
-# ST_Point(lon, lat, srid) creates a POINT geometry in WGS84 (SRID 4326)
-spark.sql(f"""
-    UPDATE {full_table_name}
-    SET point_geom = ST_Point(longitude, latitude, 4326)
-    WHERE point_geom IS NULL
-""")
-
-print("Populated point geometries from lat/lon coordinates")
-
-# COMMAND ----------
-
-# Verify the point geometries were created
-spark.sql(f"SELECT base_date_time, point_geom FROM {full_table_name} LIMIT 5").show(truncate=False)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### 7.2 Validate Spatial Data
-# MAGIC
-# MAGIC Use ST_IsValid to check that our point geometries are valid.
-# MAGIC This ensures the LAT/LON values create proper spatial objects.
-
-# COMMAND ----------
-
-# Add validation column to table schema
-# ST_IsValid returns true if the input GEOMETRY value is valid in the OGC sense
-# Note: If column already exists, this will fail - only run on fresh tables
-spark.sql(f"""
-    ALTER TABLE {full_table_name}
-    ADD COLUMNS (is_valid_geom BOOLEAN)
-""")
-
-print("Added is_valid_geom column to table schema")
-
-# COMMAND ----------
-
-# Populate validation column using ST_IsValid
-spark.sql(f"""
-    UPDATE {full_table_name}
-    SET is_valid_geom = ST_IsValid(point_geom)
-    WHERE is_valid_geom IS NULL
-""")
-
-print("Validated all geometries")
-
-# COMMAND ----------
-
-# Check if there are any invalid geometries
-counts_df = spark.sql(f"""
-    SELECT
-        is_valid_geom,
-        COUNT(*) AS count
-    FROM
-        {full_table_name}
-    GROUP BY
-        is_valid_geom
-""")
-
-display(counts_df)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### 7.3 Build H3 Spatial Indices
-# MAGIC
-# MAGIC Create H3 hexagonal indices at multiple resolutions for efficient spatial queries.
+# MAGIC We use CREATE OR REPLACE TABLE with SELECT to add all spatial columns at once:
+# MAGIC - **point_geom**: POINT geometry created from lat/lon using ST_Point (longitude, latitude, SRID)
+# MAGIC - **is_valid_geom**: Boolean validation using ST_IsValid 
+# MAGIC - **h3_res9/10/11**: H3 indices at multiple resolutions for spatial indexing
 # MAGIC
 # MAGIC H3 Resolution Reference:
 # MAGIC - **Resolution 9**: ~174m average hexagon edge length (~0.10 km²) - Good for regional analysis
@@ -275,35 +197,52 @@ display(counts_df)
 
 # COMMAND ----------
 
-# Add H3 index columns to table schema
-# Note: If columns already exist, this will fail - only run on fresh tables
+print(f"Adding spatial columns to {full_table_name}...")
+
+# Create table with all spatial columns using CREATE OR REPLACE TABLE AS SELECT
+# This lets Databricks infer the GEOMETRY type from ST_Point automatically
 spark.sql(f"""
-    ALTER TABLE {full_table_name}
-    ADD COLUMNS (
-        h3_res9 STRING,
-        h3_res10 STRING,
-        h3_res11 STRING
-    )
+    CREATE OR REPLACE TABLE {full_table_name} AS
+    SELECT 
+        *,
+        ST_Point(longitude, latitude, 4326) AS point_geom,
+        ST_IsValid(ST_Point(longitude, latitude, 4326)) AS is_valid_geom,
+        h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 9) AS h3_res9,
+        h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 10) AS h3_res10,
+        h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 11) AS h3_res11
+    FROM {full_table_name}
 """)
 
-print("Added H3 index columns to table schema")
+print("Successfully added all spatial columns!")
 
 # COMMAND ----------
 
-# Populate H3 indices at resolutions 9-11
-# h3_pointash3 converts point geometry to H3 cell ID at specified resolution
+# Verify all spatial columns were created correctly
+print("Sample data with spatial columns:")
 spark.sql(f"""
-    UPDATE {full_table_name}
-    SET
-        h3_res9 = h3_pointash3(st_astext(point_geom), 9),
-        h3_res10 = h3_pointash3(st_astext(point_geom), 10),
-        h3_res11 = h3_pointash3(st_astext(point_geom), 11)
-    WHERE h3_res9 IS NULL
-""")
-
-print("Generated H3 indices at resolutions 9-11")
+    SELECT 
+        base_date_time,
+        latitude,
+        longitude,
+        point_geom,
+        is_valid_geom,
+        h3_res9,
+        h3_res10,
+        h3_res11
+    FROM {full_table_name} 
+    LIMIT 5
+""").show(truncate=False)
 
 # COMMAND ----------
 
-# Verify H3 indices were created
-spark.sql(f"SELECT base_date_time, point_geom, h3_res9, h3_res10, h3_res11 FROM {full_table_name} LIMIT 5").show(truncate=False)
+# Check if there are any invalid geometries
+print("\nGeometry validation summary:")
+counts_df = spark.sql(f"""
+    SELECT
+        is_valid_geom,
+        COUNT(*) AS count
+    FROM {full_table_name}
+    GROUP BY is_valid_geom
+""")
+
+display(counts_df)
