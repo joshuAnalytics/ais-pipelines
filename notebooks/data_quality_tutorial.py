@@ -189,32 +189,31 @@ print(f"Successfully created Delta table: {full_table_name}")
 
 # COMMAND ----------
 
-from pyspark.sql.functions import expr
+# Add point_geom column to table schema
+# Note: If column already exists, this will fail - only run on fresh tables
+spark.sql(f"""
+    ALTER TABLE {full_table_name}
+    ADD COLUMNS (point_geom GEOMETRY)
+""")
 
-# Read the Delta table we created
-spatial_df = spark.table(full_table_name)
-
-# Add spatial point column
-# ST_Point(lon, lat) creates a POINT geometry in WGS84 (SRID 4326)
-spatial_df = spatial_df.withColumn(
-    "point_geom",
-    expr("st_point(longitude, latitude, 4326)")
-)
-
-print("Added spatial point geometry column")
+print("Added point_geom column to table schema")
 
 # COMMAND ----------
 
-#write back down to delta table
-spatial_df.write \
-    .format("delta") \
-    .mode("overwrite") \
-    .option("overwriteSchema", "true") \
-    .saveAsTable(full_table_name)
+# Populate point_geom from latitude and longitude using ST_Point
+# ST_Point(lon, lat, srid) creates a POINT geometry in WGS84 (SRID 4326)
+spark.sql(f"""
+    UPDATE {full_table_name}
+    SET point_geom = ST_Point(longitude, latitude, 4326)
+    WHERE point_geom IS NULL
+""")
+
+print("Populated point geometries from lat/lon coordinates")
 
 # COMMAND ----------
 
-spark.sql(f"SELECT base_date_time,point_geom FROM {full_table_name} LIMIT 5").show(truncate=False)
+# Verify the point geometries were created
+spark.sql(f"SELECT base_date_time, point_geom FROM {full_table_name} LIMIT 5").show(truncate=False)
 
 # COMMAND ----------
 
@@ -226,35 +225,31 @@ spark.sql(f"SELECT base_date_time,point_geom FROM {full_table_name} LIMIT 5").sh
 
 # COMMAND ----------
 
-# Add validation for each row - ST_IsValid Returns true if the input GEOMETRY value is a valid geometry in the OGC sense.
-spatial_df = spatial_df.withColumn(
-    "is_valid_geom",
-    expr("ST_IsValid(point_geom)")
-)
-
-# COMMAND ----------
-
-# Add the new column with a default value
-spark.sql(
-    f"""
+# Add validation column to table schema
+# ST_IsValid returns true if the input GEOMETRY value is valid in the OGC sense
+# Note: If column already exists, this will fail - only run on fresh tables
+spark.sql(f"""
     ALTER TABLE {full_table_name}
     ADD COLUMNS (is_valid_geom BOOLEAN)
-    """
-)
+""")
 
-# Update the new column with the computed value
-spark.sql(
-    f"""
-    UPDATE {full_table_name}
-    SET is_valid_geom = ST_IsValid(point_geom)
-    """
-)
+print("Added is_valid_geom column to table schema")
 
 # COMMAND ----------
 
-# check if there are any invalid rows 
-counts_df = spark.sql(
-    f"""
+# Populate validation column using ST_IsValid
+spark.sql(f"""
+    UPDATE {full_table_name}
+    SET is_valid_geom = ST_IsValid(point_geom)
+    WHERE is_valid_geom IS NULL
+""")
+
+print("Validated all geometries")
+
+# COMMAND ----------
+
+# Check if there are any invalid geometries
+counts_df = spark.sql(f"""
     SELECT
         is_valid_geom,
         COUNT(*) AS count
@@ -262,8 +257,8 @@ counts_df = spark.sql(
         {full_table_name}
     GROUP BY
         is_valid_geom
-    """
-)
+""")
+
 display(counts_df)
 
 # COMMAND ----------
@@ -280,30 +275,35 @@ display(counts_df)
 
 # COMMAND ----------
 
-# Add new columns for H3 indices (remove IF NOT EXISTS)
-spark.sql(
-    f"""
+# Add H3 index columns to table schema
+# Note: If columns already exist, this will fail - only run on fresh tables
+spark.sql(f"""
     ALTER TABLE {full_table_name}
     ADD COLUMNS (
         h3_res9 STRING,
         h3_res10 STRING,
         h3_res11 STRING
     )
-    """
-)
+""")
+
+print("Added H3 index columns to table schema")
 
 # COMMAND ----------
 
-spark.sql(
-    f"""
+# Populate H3 indices at resolutions 9-11
+# h3_pointash3 converts point geometry to H3 cell ID at specified resolution
+spark.sql(f"""
     UPDATE {full_table_name}
     SET
         h3_res9 = h3_pointash3(st_astext(point_geom), 9),
         h3_res10 = h3_pointash3(st_astext(point_geom), 10),
         h3_res11 = h3_pointash3(st_astext(point_geom), 11)
-    """
-)
+    WHERE h3_res9 IS NULL
+""")
+
+print("Generated H3 indices at resolutions 9-11")
 
 # COMMAND ----------
 
-spark.sql(f"SELECT base_date_time,point_geom,h3_res9 FROM {full_table_name} LIMIT 5").show(truncate=False)
+# Verify H3 indices were created
+spark.sql(f"SELECT base_date_time, point_geom, h3_res9, h3_res10, h3_res11 FROM {full_table_name} LIMIT 5").show(truncate=False)
