@@ -237,3 +237,38 @@ counts_df = spark.sql(f"""
 """)
 
 display(counts_df)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Aggregate Data by H3 Resolution 9 and Hour of Day
+# MAGIC
+# MAGIC Group the data by H3 index (resolution 9) and hour of day to count unique vessels in each spatial-temporal bucket.
+
+# COMMAND ----------
+
+# Create aggregation query
+aggregation_query = f"""
+    SELECT 
+        h3_res9,
+        HOUR(timestamp) AS hour_of_day,
+        COUNT(DISTINCT mmsi) AS unique_vessels,
+        COUNT(*) AS total_records
+    FROM {full_table_name}
+    GROUP BY h3_res9, HOUR(timestamp)
+    ORDER BY h3_res9, hour_of_day
+"""
+
+# Create aggregation table name
+agg_table_name = f"{CATALOG}.{SCHEMA}.{TARGET_TABLE}_agg"
+
+print(f"Creating aggregation table: {agg_table_name}")
+
+# Execute aggregation and write to Delta table
+spark.sql(aggregation_query).write.format("delta").mode("overwrite").saveAsTable(agg_table_name)
+
+print(f"Successfully created aggregation table: {agg_table_name}")
+
+# Display sample of aggregated data
+print("\nSample of aggregated data:")
+display(spark.table(agg_table_name).limit(20))
