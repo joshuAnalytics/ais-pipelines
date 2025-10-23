@@ -65,7 +65,7 @@ variables:
   
   download_limit:
     description: "Maximum number of files to download (0 = all files)"
-    default: 0
+    default: 1
 
 artifacts:
   # Build your project into a wheel using uv, so the exact env is defined by your pyproject/uv.lock.
@@ -77,10 +77,10 @@ artifacts:
 
 resources:
   jobs:
-    download_ais_test:
-      name: "[${bundle.target}] AIS Download Test"
+    download_ais:
+      name: "[${bundle.target}] AIS Downloader"
       tasks:
-        - task_key: download_single_file
+        - task_key: download_ais
           python_wheel_task:
             package_name: ais_pipelines
             entry_point: download-ais
