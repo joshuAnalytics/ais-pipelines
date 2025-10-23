@@ -6,6 +6,8 @@ requires-python = ">=3.10"
 dependencies = [
     "beautifulsoup4",
     "folium>=0.20.0",
+    "h3>=4.3.1",
+    "pydeck>=0.9.1",
     "requests",
     "ruff>=0.14.1",
     "tqdm>=4.67.1",
