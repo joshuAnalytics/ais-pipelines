@@ -198,9 +198,10 @@ spark.sql(f"""
         *,
         ST_Point(longitude, latitude, 4326) AS point_geom,
         ST_IsValid(ST_Point(longitude, latitude, 4326)) AS is_valid_geom,
-        h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 9) AS h3_res9,
-        h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 10) AS h3_res10,
-        h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 11) AS h3_res11
+        h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 6) AS h3_res6,
+        h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 7) AS h3_res7,
+        h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 8) AS h3_res8,
+        h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 9) AS h3_res9
     FROM {full_table_name}
 """)
 
@@ -217,9 +218,10 @@ spark.sql(f"""
         longitude,
         point_geom,
         is_valid_geom,
-        h3_res9,
-        h3_res10,
-        h3_res11
+        h3_res6,
+        h3_res7,
+        h3_res8,
+        h3_res9
     FROM {full_table_name} 
     LIMIT 5
 """).show(truncate=False)
@@ -241,34 +243,59 @@ display(counts_df)
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Aggregate Data by H3 Resolution 9 and Hour of Day
+# MAGIC ## Aggregate Data by H3 Resolutions and Hour of Day
 # MAGIC
-# MAGIC Group the data by H3 index (resolution 9) and hour of day to count unique vessels in each spatial-temporal bucket.
+# MAGIC Create aggregation tables for multiple H3 resolutions (6, 7, 8, 9) to support different zoom levels in visualization.
+# MAGIC
+# MAGIC Resolution Reference:
+# MAGIC - **Resolution 6**: ~36 km² per hex - Continental/ocean-wide patterns
+# MAGIC - **Resolution 7**: ~5 km² per hex - Regional shipping lanes
+# MAGIC - **Resolution 8**: ~0.7 km² per hex - Port areas and coastal zones
+# MAGIC - **Resolution 9**: ~0.1 km² per hex - Detailed vessel movements
 
 # COMMAND ----------
 
-# Create aggregation query
-aggregation_query = f"""
-    SELECT 
-        h3_res9,
-        HOUR(timestamp) AS hour_of_day,
-        COUNT(DISTINCT mmsi) AS unique_vessels,
-        COUNT(*) AS total_records
-    FROM {full_table_name}
-    GROUP BY h3_res9, HOUR(timestamp)
-    ORDER BY h3_res9, hour_of_day
-"""
+# Base aggregation table name
+base_agg_table_name = f"{CATALOG}.{SCHEMA}.{TARGET_TABLE}_agg"
 
-# Create aggregation table name
-agg_table_name = f"{CATALOG}.{SCHEMA}.{TARGET_TABLE}_agg"
+# Create aggregation tables for each resolution
+for resolution in [6, 7, 8, 9]:
+    print(f"\n{'='*60}")
+    print(f"Creating aggregation for resolution {resolution}...")
+    print(f"{'='*60}")
+    
+    h3_column = f"h3_res{resolution}"
+    agg_table_name = f"{base_agg_table_name}_res{resolution}"
+    
+    aggregation_query = f"""
+        SELECT 
+            {h3_column},
+            HOUR(timestamp) AS hour_of_day,
+            COUNT(DISTINCT mmsi) AS unique_vessels,
+            COUNT(*) AS total_records
+        FROM {full_table_name}
+        GROUP BY {h3_column}, HOUR(timestamp)
+        ORDER BY {h3_column}, hour_of_day
+    """
+    
+    print(f"Creating table: {agg_table_name}")
+    
+    # Execute aggregation and write to Delta table
+    agg_df = spark.sql(aggregation_query)
+    agg_df.write.format("delta").mode("overwrite").saveAsTable(agg_table_name)
+    
+    # Show statistics
+    total_hexagons = agg_df.select(h3_column).distinct().count()
+    total_records = agg_df.count()
+    
+    print(f"✓ Successfully created: {agg_table_name}")
+    print(f"  - Unique hexagons: {total_hexagons:,}")
+    print(f"  - Total aggregated records: {total_records:,}")
+    
+    # Display sample
+    print(f"\nSample data:")
+    display(agg_df.limit(10))
 
-print(f"Creating aggregation table: {agg_table_name}")
-
-# Execute aggregation and write to Delta table
-spark.sql(aggregation_query).write.format("delta").mode("overwrite").saveAsTable(agg_table_name)
-
-print(f"Successfully created aggregation table: {agg_table_name}")
-
-# Display sample of aggregated data
-print("\nSample of aggregated data:")
-display(spark.table(agg_table_name).limit(20))
+print(f"\n{'='*60}")
+print("All aggregation tables created successfully!")
+print(f"{'='*60}")
