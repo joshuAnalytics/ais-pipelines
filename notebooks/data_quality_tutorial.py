@@ -3,29 +3,14 @@
 # MAGIC # AIS Data Quality Tutorial
 # MAGIC
 # MAGIC This notebook demonstrates:
-# MAGIC 2. Loading CSV data into a Delta table
-# MAGIC 3. Basic data quality checks
+# MAGIC * Loading CSV data into a Delta table
+# MAGIC * Basic data quality checks
 # MAGIC
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 0. Install Dependencies
-# MAGIC
-# MAGIC Install required Python packages for decompression and data processing.
 
 # COMMAND ----------
 
 # MAGIC %pip install -e ../ --quiet
-
-# COMMAND ----------
-
 dbutils.library.restartPython()
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Setup and Configuration
 
 # COMMAND ----------
 
@@ -135,10 +120,18 @@ print(f"  Longitude: {geo_stats['min_lon']:.4f} to {geo_stats['max_lon']:.4f}")
 
 # COMMAND ----------
 
+# Calculate center from actual data bounds
+center_lat = (geo_stats['min_lat'] + geo_stats['max_lat']) / 2
+center_lon = (geo_stats['min_lon'] + geo_stats['max_lon']) / 2
 
-m = folium.Map(location=[20, 0], zoom_start=2)
+# Create map centered on actual data with dynamic bounds
+m = folium.Map(location=[center_lat, center_lon], zoom_start=2)
 folium.Rectangle(
-    [[0.5566, -174.5605], [50.1100, 157.8722]], weight=2, fill=True, fill_opacity=0.15
+    [[geo_stats['min_lat'], geo_stats['min_lon']], 
+     [geo_stats['max_lat'], geo_stats['max_lon']]], 
+    weight=2, 
+    fill=True, 
+    fill_opacity=0.15
 ).add_to(m)
 m  # renders in the notebook output
 
@@ -146,7 +139,7 @@ m  # renders in the notebook output
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 6. Create Delta Table
+# MAGIC ## Create Delta Table
 # MAGIC
 # MAGIC Now we'll write the data to a Delta table in Unity Catalog.
 
@@ -173,7 +166,7 @@ print(f"Successfully created Delta table: {full_table_name}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 7. Spatial Data Processing & H3 Indexing
+# MAGIC ## Spatial Data Processing & H3 Indexing
 # MAGIC
 # MAGIC Now we'll enhance the data with spatial types and H3 indices for geospatial analysis using a single SQL operation.
 # MAGIC This approach lets Databricks infer the GEOMETRY type automatically from the ST_Point function.
