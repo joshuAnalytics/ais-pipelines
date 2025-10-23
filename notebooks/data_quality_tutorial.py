@@ -3,13 +3,9 @@
 # MAGIC # AIS Data Quality Tutorial
 # MAGIC
 # MAGIC This notebook demonstrates:
-# MAGIC 1. Decompressing `.csv.zst` files from the Unity Catalog volume
 # MAGIC 2. Loading CSV data into a Delta table
 # MAGIC 3. Basic data quality checks
 # MAGIC
-# MAGIC ## Prerequisites
-# MAGIC - Files downloaded to Unity Catalog volume (via `download_ais` job)
-# MAGIC - Python wheel built and uploaded via Databricks Asset Bundle
 
 # COMMAND ----------
 
@@ -33,9 +29,6 @@ dbutils.library.restartPython()
 
 # COMMAND ----------
 
-import io
-import zstandard as zstd
-from pyspark.sql import SparkSession
 import folium
 from pyspark.sql.functions import col, count, countDistinct, to_timestamp, min, max
 from pyspark.databricks.sql import functions as dbf
