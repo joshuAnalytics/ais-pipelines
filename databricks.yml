@@ -103,38 +103,6 @@ resources:
             dependencies:
               - ./dist/*.whl
     
-    dripper:
-      name: "[${bundle.target}] AIS Dripper"
-      schedule:
-        quartz_cron_expression: "0/10 * * * * ?"  # every 10 seconds
-        timezone_id: "UTC"
-        pause_status: "UNPAUSED"
-      tasks:
-        - task_key: drip_files
-          python_wheel_task:
-            package_name: ais_pipelines
-            entry_point: dripper
-            parameters:
-              - "--catalog"
-              - "${var.catalog}"
-              - "--schema"
-              - "${var.schema}"
-              - "--source-volume"
-              - "${var.source_volume}"
-              - "--landing-volume"
-              - "${var.landing_volume}"
-              - "--n-per-run"
-              - "${var.dripper_n_per_run}"
-              - "--delete-source"
-              - "${var.dripper_delete_source}"
-          environment_key: default
-      environments:
-        - environment_key: default
-          spec:
-            client: "1"
-            dependencies:
-              - ./dist/*.whl
-    
     decompress:
       name: "[${bundle.target}] AIS Decompressor"
       tasks:
@@ -160,48 +128,6 @@ resources:
         - environment_key: default
           spec:
             client: "1"
-            dependencies:
-              - ./dist/*.whl
-    
-    autoloader:
-      name: "[${bundle.target}] AIS Auto Loader"
-      tasks:
-        - task_key: stream_files
-          python_wheel_task:
-            package_name: ais_pipelines
-            entry_point: autoloader
-            parameters:
-              - "--catalog"
-              - "${var.catalog}"
-              - "--schema"
-              - "${var.schema}"
-              - "--landing-volume"
-              - "${var.landing_volume}"
-              - "--schema-location"
-              - "${var.autoloader_schema_location}"
-              - "--checkpoint-location"
-              - "${var.autoloader_checkpoint_location}"
-              - "--target-table"
-              - "${var.autoloader_target_table}"
-          environment_key: default
-      environments:
-        - environment_key: default
-          spec:
-            client: "1"
-            dependencies:
-              - ./dist/*.whl
-    
-    data_quality_notebook:
-      name: "[${bundle.target}] Data Quality Tutorial"
-      tasks:
-        - task_key: run_notebook
-          notebook_task:
-            notebook_path: ./notebooks/data_quality_tutorial.py
-            source: WORKSPACE
-      environments:
-        - environment_key: default
-          spec:
-            client: "4"
             dependencies:
               - ./dist/*.whl
 
