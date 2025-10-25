@@ -1,4 +1,4 @@
-"""Decompress .csv.zst files in the landing volume for Auto Loader ingestion."""
+"""Decompress .csv.zst files from history volume to landing volume for Auto Loader ingestion."""
 
 import argparse
 import io
@@ -10,18 +10,6 @@ try:
     import zstandard as zstd
 except ImportError:
     zstd = None
-
-
-def parse_schema_from_username(username: str) -> str:
-    """Extract schema name from username by removing domain suffix.
-    
-    Args:
-        username: Full username/email)
-    
-    Returns:
-        Schema name without domain
-    """
-    return username.split("@")[0]
 
 
 class UnityUtilities:
@@ -46,20 +34,23 @@ class UnityUtilities:
 class FileManager:
     """Manages file listing and filtering operations."""
 
-    def __init__(self, spark: SparkSession, landing_path: str) -> None:
+    def __init__(self, spark: SparkSession, source_path: str, landing_path: str) -> None:
         self.spark = spark
+        self.source_path = source_path
         self.landing_path = landing_path
         self.dbutils = DBUtils(spark)
 
     def get_compressed_files(self, limit: int = None) -> List:
-        """Get list of compressed files to process."""
-        all_files = self._list_files()
-        compressed_files = self._filter_compressed(all_files)
+        """Get list of compressed files to process from source volume."""
+        source_files = self._list_files()
+        compressed_files = self._filter_compressed(source_files)
         
-        # Filter out files that already have decompressed versions
+        # Get existing decompressed files in landing volume
+        landing_files = self._list_landing_files()
+        decompressed_names = self._get_decompressed_filenames(landing_files)
+        
+        # Filter out files that already have decompressed versions in landing
         files_to_process = []
-        decompressed_names = self._get_decompressed_filenames(all_files)
-        
         for f in compressed_files:
             expected_csv = f.name.replace('.csv.zst', '.csv').replace('.zip', '.csv')
             if expected_csv not in decompressed_names:
@@ -72,6 +63,13 @@ class FileManager:
         return sorted_files
 
     def _list_files(self) -> List:
+        """List all files in the source (history) volume."""
+        try:
+            return self.dbutils.fs.ls(self.source_path)
+        except Exception:
+            return []
+
+    def _list_landing_files(self) -> List:
         """List all files in the landing volume."""
         try:
             return self.dbutils.fs.ls(self.landing_path)
@@ -126,7 +124,7 @@ class FileDecompressor:
     def _decompress_zstd(self, file_info) -> bool:
         """Decompress a .csv.zst file using streaming zstandard decompression.
         
-        Uses direct file system access to Unity Catalog volumes with streaming
+        Reads from source volume and writes to landing volume with streaming
         to handle large files efficiently without temp files or memory issues.
         """
         if zstd is None:
@@ -135,9 +133,11 @@ class FileDecompressor:
         # Define chunk size for reading decompressed data (50MB)
         CHUNK_SIZE = 50 * 1024 * 1024
         
-        # Convert dbfs:// path to local file system path for direct access
+        # Convert dbfs:// paths to local file system paths for direct access
         input_path = file_info.path.replace('dbfs:', '')
-        output_path = input_path.replace('.csv.zst', '.csv')
+        output_filename = file_info.name.replace('.csv.zst', '.csv')
+        landing_path_local = self.landing_path.replace('dbfs:', '')
+        output_path = f"{landing_path_local}/{output_filename}"
         
         # Create decompressor
         dctx = zstd.ZstdDecompressor()
@@ -155,7 +155,7 @@ class FileDecompressor:
                         # Write chunk to output
                         output_file.write(chunk)
         
-        print(f"Decompressed: {file_info.name} -> {output_path.split('/')[-1]}")
+        print(f"Decompressed: {file_info.name} -> {output_filename}")
         
         # Delete compressed file if requested
         if self.delete_compressed:
@@ -195,12 +195,13 @@ class FileDecompressor:
 
 
 class DecompressOrchestrator:
-    """Orchestrates the file decompression process."""
+    """Orchestrates the file decompression process from history to landing volume."""
 
     def __init__(
         self,
         catalog: str,
         schema: str,
+        history_volume: str,
         landing_volume: str,
         limit: int,
         delete_compressed: bool,
@@ -208,13 +209,15 @@ class DecompressOrchestrator:
         self.spark = SparkSession.builder.getOrCreate()
         self.catalog = catalog
         self.schema = schema
+        self.history_volume = history_volume
         self.landing_volume = landing_volume
         self.limit = limit
         self.delete_compressed = delete_compressed
 
         self.unity = UnityUtilities(self.spark, catalog, schema)
+        self.source_path = f"/Volumes/{catalog}/{schema}/{history_volume}"
         self.landing_path = f"/Volumes/{catalog}/{schema}/{landing_volume}"
-        self.file_manager = FileManager(self.spark, self.landing_path)
+        self.file_manager = FileManager(self.spark, self.source_path, self.landing_path)
         self.file_decompressor = FileDecompressor(
             self.spark, self.landing_path, delete_compressed
         )
@@ -233,10 +236,12 @@ class DecompressOrchestrator:
         self._print_summary(len(candidates), success_count)
 
     def _setup_infrastructure(self) -> None:
-        """Ensure catalog, schema, and volume exist."""
+        """Ensure catalog, schema, and both volumes exist."""
         self.unity.ensure_schema_exists()
+        self.unity.ensure_volume_exists(self.history_volume)
         self.unity.ensure_volume_exists(self.landing_volume)
-        print(f"Landing volume ready: {self.catalog}.{self.schema}.{self.landing_volume}")
+        print(f"History volume: {self.catalog}.{self.schema}.{self.history_volume}")
+        print(f"Landing volume: {self.catalog}.{self.schema}.{self.landing_volume}")
 
     def _get_candidate_files(self) -> List:
         """Get list of files to process."""
@@ -261,7 +266,7 @@ class DecompressOrchestrator:
 def main() -> None:
     """Main entry point for the decompress script."""
     parser = argparse.ArgumentParser(
-        description="Decompress files in landing volume"
+        description="Decompress files from history volume to landing volume"
     )
     parser.add_argument(
         "--catalog",
@@ -269,14 +274,19 @@ def main() -> None:
         help="Unity Catalog catalog name",
     )
     parser.add_argument(
-        "--username",
+        "--schema",
         required=True,
-        help="Workspace username (email) - schema name will be derived from this",
+        help="Unity Catalog schema name",
+    )
+    parser.add_argument(
+        "--history-volume",
+        required=True,
+        help="Source volume containing compressed files",
     )
     parser.add_argument(
         "--landing-volume",
         required=True,
-        help="Landing volume name",
+        help="Destination volume for decompressed files",
     )
     parser.add_argument(
         "--limit",
@@ -293,12 +303,12 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Parse schema from username
-    schema = parse_schema_from_username(args.username)
+    schema = args.schema
 
     decompressor = DecompressOrchestrator(
         catalog=args.catalog,
         schema=schema,
+        history_volume=args.history_volume,
         landing_volume=args.landing_volume,
         limit=args.limit,
         delete_compressed=args.delete_compressed,
