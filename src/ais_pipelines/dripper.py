@@ -6,18 +6,6 @@ from pyspark.sql import SparkSession
 from pyspark.dbutils import DBUtils
 
 
-def parse_schema_from_username(username: str) -> str:
-    """Extract schema name from username by removing domain suffix.
-    
-    Args:
-        username: Full username/email)
-    
-    Returns:
-        Schema name without domain
-    """
-    return username.split("@")[0]
-
-
 class UnityUtilities:
     """Handles Unity Catalog operations for catalog, schema, and volume management."""
 
@@ -194,9 +182,9 @@ def main() -> None:
         help="Unity Catalog catalog name",
     )
     parser.add_argument(
-        "--username",
+        "--schema",
         required=True,
-        help="Workspace username (email) - schema name will be derived from this",
+        help="Unity Catalog schema name",
     )
     parser.add_argument(
         "--source-volume",
@@ -223,8 +211,7 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Parse schema from username
-    schema = parse_schema_from_username(args.username)
+    schema = args.schema
 
     dripper = DripperOrchestrator(
         catalog=args.catalog,
