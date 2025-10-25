@@ -29,9 +29,9 @@ from pyspark.sql.types import (
 # COMMAND ----------
 
 # Configuration - Update these values based on your environment
-CATALOG = "dbacademy"
+CATALOG = "ais"
 SCHEMA = (
-    "labuser12249714_1761120614"  # Replace with your schema (derived from username)
+    "ais_assets" 
 )
 SOURCE_VOLUME = "landing"
 TARGET_TABLE = "ais_data_sample"
