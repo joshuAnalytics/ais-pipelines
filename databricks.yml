@@ -77,8 +77,8 @@ artifacts:
 
 resources:
   jobs:
-    download_ais:
-      name: "[${bundle.target}] AIS Downloader"
+    ais_pipeline:
+      name: "[${bundle.target}] AIS Pipeline"
       tasks:
         - task_key: download_ais
           python_wheel_task:
@@ -96,17 +96,10 @@ resources:
               - "--limit"
               - "${var.download_limit}"
           environment_key: default
-      environments:
-        - environment_key: default
-          spec:
-            client: "4"
-            dependencies:
-              - ./dist/*.whl
-    
-    decompress:
-      name: "[${bundle.target}] AIS Decompressor"
-      tasks:
+        
         - task_key: decompress_files
+          depends_on:
+            - task_key: download_ais
           python_wheel_task:
             package_name: ais_pipelines
             entry_point: decompress
@@ -124,10 +117,11 @@ resources:
               - "--delete-compressed"
               - "${var.decompressor_delete_compressed}"
           environment_key: default
+      
       environments:
         - environment_key: default
           spec:
-            client: "1"
+            client: "4"
             dependencies:
               - ./dist/*.whl
 
