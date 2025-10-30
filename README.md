@@ -75,6 +75,9 @@ rm -rf .databricks
 ## Notebooks
 
 The `notebooks/` directory contains:
-- `data_quality_tutorial.py` - Data quality analysis examples
-- `salish_sea_deep_dive.ipynb` - Salish Sea region analysis
-- `viz_h3_agg.py` - H3 hexagonal aggregation visualizations
+
+- **data_quality_tutorial.py** - Demonstrates loading AIS CSV data into Delta tables, performing data quality checks, creating spatial columns with H3 indices at multiple resolutions (6-9), and generating pre-aggregated tables for visualization.
+
+- **salish_sea_deep_dive.ipynb** - Analyzes vessel movements in the Salish Sea region using spatial data analysis. Loads port reference data, filters AIS events to the region, identifies vessels in port using spatial intersections, sessionizes vessel journeys, and computes origin-destination (O/D) journey counts between ports.
+
+- **viz_h3_agg.py** - Creates interactive pydeck visualizations of vessel activity using H3 hexagonal aggregations. Shows daily vessel activity patterns with a fire colormap (yellow to red) across different H3 resolutions, with interactive tooltips and zoom controls.
