@@ -74,6 +74,7 @@ secrets.yml
 .pydevproject
 .settings/
 .ruff_cache
+.clinerules
 
 # OS specific
 .DS_Store
