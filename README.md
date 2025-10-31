@@ -24,7 +24,7 @@ The `notebooks/` directory contains:
 
 - **data_quality_tutorial.py** - Demonstrates loading AIS CSV data into Delta tables, performing data quality checks, creating spatial columns with H3 indices at multiple resolutions (6-9), and generating pre-aggregated tables for visualization.
 
-- **salish_sea_deep_dive.ipynb** - Analyzes vessel movements in the Salish Sea region using spatial data analysis. Loads port reference data, filters AIS events to the region, identifies vessels in port using spatial intersections, sessionizes vessel journeys, and computes origin-destination (O/D) journey counts between ports.
+- **salish_sea_deep_dive.ipynb** - Analyzes vessel movements in the Salish Sea region using spatial data analysis. Loads port reference data, filters AIS events to the region, identifies vessels in port using spatial intersections, sessionizes vessel journeys, and computes origin-destination (O/D) journey counts between ports. Includes tracking the movements of the [Tally Ho](https://en.wikipedia.org/wiki/Tally_Ho_(yacht)) - a sailboat whose restoration and adventures are documented on the YouTube channel [Sampson Boat Co](https://www.youtube.com/@SampsonBoatCo).
 
 - **viz_h3_agg.py** - Creates interactive pydeck visualizations of vessel activity using H3 hexagonal aggregations. Shows daily vessel activity patterns with a fire colormap (yellow to red) across different H3 resolutions, with interactive tooltips and zoom controls.
 
