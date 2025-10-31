@@ -1,74 +1,109 @@
 # ⛵ ais-pipelines
 
-## About AIS Data
+## About the dataset
 
-This project works with Automatic Identification System (AIS) data from NOAA's Office for Coastal Management. AIS is a maritime vessel tracking system that broadcasts ship positions, speed, course, and other vessel information. NOAA's Office for Coastal Management serves to increase the resilience of the nation's coastal zone by helping communities and businesses take the actions needed to keep coastal residents safe, the economy sound, and natural resources functioning. The AIS data provided by NOAA supports critical coastal management decisions, marine transportation planning, environmental protection, and maritime safety analysis.
+This project works with Automatic Identification System (AIS) data from NOAA's Office for Coastal Management. 
 
-## Project Overview
+* AIS is a maritime vessel tracking system that broadcasts ship positions, speed, course, and other vessel information. 
+* NOAA's Office for Coastal Management serves to increase the resilience of the nation's coastal zone by helping communities and businesses take the actions needed to keep coastal residents safe, the economy sound, and natural resources functioning. 
+* The dataset offers a deep time series lookback over multiple years of vessel movement
+* The dataset is limited spatially to waters close to North America and other US jurisdictions 
 
-This project implements a complete data pipeline for processing AIS data on Databricks:
+## Data Pipeline 
+
+This project implements a data pipeline for processing AIS data on Databricks:
 
 1. **Download** - Retrieves compressed AIS files from NOAA's public archive
 2. **Decompress** - Extracts .csv.zst and .zip files for processing
-3. **Dripper** - Gradually releases files to a landing volume for controlled ingestion
-4. **Auto Loader** - Streams data from landing volume to Delta tables using Databricks Auto Loader
 
+The pipeline is deployed as a single Databricks job with tasks that run sequentially: `download_ais` → `decompress_files`.
 
-## download ais
+## Geospatial Analytics
 
-download_ais.py downloads source files from https://coast.noaa.gov/htdata/CMSP/AISDataHandler/{year}/index.html 
-where {year} is the calendar year. Each page has a list of AIS data in .csv.zst format.
+The `notebooks/` directory contains:
 
-### Configuration
+- **data_quality_tutorial.py** - Demonstrates loading AIS CSV data into Delta tables, performing data quality checks, creating spatial columns with H3 indices at multiple resolutions (6-9), and generating pre-aggregated tables for visualization.
 
-Settings are defined in the `variables` section of `databricks.yml`:
+- **salish_sea_deep_dive.ipynb** - Analyzes vessel movements in the Salish Sea region using spatial data analysis. Loads port reference data, filters AIS events to the region, identifies vessels in port using spatial intersections, sessionizes vessel journeys, and computes origin-destination (O/D) journey counts between ports. Includes tracking the movements of the [Tally Ho](https://en.wikipedia.org/wiki/Tally_Ho_(yacht)) - a sailboat whose restoration and adventures are documented on the YouTube channel [Sampson Boat Co](https://www.youtube.com/@SampsonBoatCo).
+
+- **viz_h3_agg.py** - Creates interactive pydeck visualizations of vessel activity using H3 hexagonal aggregations. Shows daily vessel activity patterns with a fire colormap (yellow to red) across different H3 resolutions, with interactive tooltips and zoom controls.
+
+## Configuration
+
+Key settings in `databricks.yml`:
 
 ```yaml
 variables:
-  # Unity Catalog Configuration
-  catalog:
-    description: "Unity Catalog catalog name"
-    default: ais
+  # Unity Catalog
+  catalog: ais
+  schema: ais_assets
   
-  schema:
-    description: "Unity Catalog schema name"
-    default: ais_assets
+  # Volumes
+  source_volume: full_history        # Downloaded/compressed files
+  landing_volume: landing            # Decompressed files
+  download_target_volume: full_history
   
-  # Download Configuration
-  download_target_volume:
-    description: "Volume where AIS files will be downloaded"
-    default: full_history
+  # Download settings
+  download_year: 2025
+  download_limit: 1                  # Set to 0 for all files
   
-  download_year:
-    description: "Year to download from NOAA"
-    default: 2024
-  
-  download_limit:
-    description: "Max files to download (null for all files)"
-    default: 1
+  # Decompressor settings
+  decompressor_limit: 0              # 0 = all files
+  decompressor_delete_compressed: false
 ```
 
-For testing, set `download_limit: 1`. For production, set `download_limit: null` to download all available files.
+## Prerequisites
 
-### Parameters
+Before building and deploying, install the required tools:
 
-The script accepts these parameters passed from the bundle variables:
+### Databricks CLI
 
-- `--catalog`: catalog name in Unity Catalog (from `${var.catalog}`)
-- `--schema`: schema name in Unity Catalog (from `${var.schema}`)
-- `--volume`: target Unity Catalog volume for files (from `${var.download_target_volume}`)
-- `--year`: calendar year to download (from `${var.download_year}`)
-- `--limit`: max number of files to download (from `${var.download_limit}`)
+Install the Databricks CLI to deploy and manage bundles:
 
-### Pre-download checks
+```bash
+# macOS (via Homebrew)
+brew install databricks/tap/databricks
+```
 
-Before downloading, the script:
+See the [official documentation](https://docs.databricks.com/en/dev-tools/cli/install.html) for other installation methods.
 
-* Creates catalog and schema if they don't exist
-* Creates volume if it doesn't exist
-* Checks if files already exist on the volume - skips re-downloading duplicates
+### uv
 
-### Building the package
+Install uv for fast Python package management:
+
+```bash
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Or via Homebrew
+brew install uv
+```
+
+See the [official documentation](https://docs.astral.sh/uv/getting-started/installation/) for other installation methods.
+
+### Databricks Authentication
+
+Configure your Databricks workspace connection in `~/.databrickscfg`:
+
+```ini
+[DEFAULT]
+host = https://your-workspace.cloud.databricks.com
+auth_type = databricks-cli
+```
+
+When you login, your browser will open to complete the OAuth flow. 
+```bash
+databricks auth login
+```
+
+
+**Note:** OAuth U2M (User-to-Machine) authentication is preferred over personal access tokens for enhanced security and automatic token refresh. 
+
+See the [authentication documentation](https://docs.databricks.com/en/dev-tools/auth/index.html) for more details.
+
+## Building and Deployment
+
+### Build the package
 
 The project is packaged as a Python wheel using uv:
 
@@ -78,69 +113,25 @@ uv build
 
 This creates a `.whl` file in the `dist/` directory that contains the package and its dependencies.
 
-### Deployment
+### Deploy and run
 
 Deploy using Databricks Asset Bundles:
 
-```
-# Deploy to dev environment
+```bash
+# Deploy to dev environment (default)
 databricks bundle deploy
 
-# Download data
-databricks bundle run download_ais_test
+# Run the pipeline job
+databricks bundle run ais_pipeline
 
+# Override variables for specific runs
+databricks bundle run ais_pipeline --var="download_year=2023" --var="download_limit=5"
 ```
 
-# Clear local terraform cache
-if you are switching between different workspaces, you may need to clear the terraform cache in your local .databricks file. 
+### Clear local cache
+
+If switching between workspaces, clear the terraform cache:
 
 ```bash
 rm -rf .databricks
 ```
-
-### Variable overrides
-
-Override variables when deploying or running:
-
-```bash
-# Override variables for deployment
-databricks bundle deploy --var="download_year=2023" --var="download_limit=5"
-
-# Run with overridden variables
-databricks bundle run download_ais_test --var="download_year=2023" --var="download_limit=5"
-```
-
-### Verification
-
-Check downloaded files in your Unity Catalog volume:
-
-```sql
-LIST '/Volumes/main/streaming/full_history/'
-```
-
-Or via Python:
-
-```python
-files = dbutils.fs.ls("/Volumes/main/streaming/full_history/")
-for f in files:
-    print(f.path, f.size)
-```
-
-Expected filenames: `AIS_2024_01_01.csv.zst`, `AIS_2024_01_02.csv.zst`, etc.
-
-## dripper
-
-Gradually releases files from source volume to landing volume for streaming ingestion.
-
-- Runs on schedule (configured in `databricks.yml`)
-- Processes `n_per_run` files per execution
-- Skips already-processed files
-- Supports both copy and move operations
-
-Configuration in `databricks.yml`:
-- `source_volume`: source volume name (default: `full_history`)
-- `landing_volume`: destination volume name (default: `landing`)
-- `dripper_n_per_run`: files to process per run (default: `1`)
-- `dripper_delete_source`: delete source after copy (default: `false`)
-
-Deploy: `databricks bundle deploy`
