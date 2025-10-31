@@ -52,6 +52,55 @@ variables:
   decompressor_delete_compressed: false
 ```
 
+## Prerequisites
+
+Before building and deploying, install the required tools:
+
+### Databricks CLI
+
+Install the Databricks CLI to deploy and manage bundles:
+
+```bash
+# macOS (via Homebrew)
+brew install databricks/tap/databricks
+```
+
+See the [official documentation](https://docs.databricks.com/en/dev-tools/cli/install.html) for other installation methods.
+
+### uv
+
+Install uv for fast Python package management:
+
+```bash
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Or via Homebrew
+brew install uv
+```
+
+See the [official documentation](https://docs.astral.sh/uv/getting-started/installation/) for other installation methods.
+
+### Databricks Authentication
+
+Configure your Databricks workspace connection in `~/.databrickscfg`:
+
+```ini
+[DEFAULT]
+host = https://your-workspace.cloud.databricks.com
+auth_type = databricks-cli
+```
+
+When you login, your browser will open to complete the OAuth flow. 
+```bash
+databricks auth login
+```
+
+
+**Note:** OAuth U2M (User-to-Machine) authentication is preferred over personal access tokens for enhanced security and automatic token refresh. 
+
+See the [authentication documentation](https://docs.databricks.com/en/dev-tools/auth/index.html) for more details.
+
 ## Building and Deployment
 
 ### Build the package
