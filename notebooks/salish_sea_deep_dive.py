@@ -3,6 +3,8 @@
 # MAGIC # Deciphering vessel movements in the Salish Sea
 # MAGIC
 # MAGIC ![](assets/tally-ho.png)
+# MAGIC
+# MAGIC > **Note:** This notebook requires Databricks Serverless Compute Version 4 or higher for the custom shapefile DataSource to work correctly.
 
 # COMMAND ----------
 
@@ -22,7 +24,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -e ../ --quiet
+# MAGIC %pip install -e ../ --no-deps --quiet
 
 # COMMAND ----------
 
