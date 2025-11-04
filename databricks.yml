@@ -4,6 +4,10 @@ bundle:
 workspace:
   root_path: /Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
 
+sync:
+  include:
+    - "notebooks/**/*"
+
 variables:
   # Unity Catalog Configuration
   catalog:
