@@ -245,7 +245,7 @@ display(counts_df)
 # MAGIC %md
 # MAGIC ## Aggregate Data by H3 Resolutions and Hour of Day
 # MAGIC
-# MAGIC Create aggregation tables for multiple H3 resolutions (6, 7, 8, 9) to support different zoom levels in visualization.
+# MAGIC Create a single aggregation table for all H3 resolutions (6, 7, 8, 9) to support different zoom levels in visualization.
 # MAGIC
 # MAGIC Resolution Reference:
 # MAGIC - **Resolution 6**: ~36 km² per hex - Continental/ocean-wide patterns
@@ -255,47 +255,87 @@ display(counts_df)
 
 # COMMAND ----------
 
-# Base aggregation table name
-base_agg_table_name = f"{CATALOG}.{SCHEMA}.{TARGET_TABLE}_agg"
+# Aggregation table name
+agg_table_name = f"{CATALOG}.{SCHEMA}.{TARGET_TABLE}_agg"
 
-# Create aggregation tables for each resolution
-for resolution in [6, 7, 8, 9]:
-    print(f"\n{'='*60}")
-    print(f"Creating aggregation for resolution {resolution}...")
-    print(f"{'='*60}")
+print(f"Creating single aggregation table: {agg_table_name}")
+print(f"{'='*60}")
+
+# Create aggregation query combining all resolutions using UNION ALL
+aggregation_query = f"""
+    SELECT 
+        6 AS resolution,
+        h3_res6 AS h3_cell,
+        HOUR(timestamp) AS hour_of_day,
+        COUNT(DISTINCT mmsi) AS unique_vessels,
+        COUNT(*) AS total_records
+    FROM {full_table_name}
+    GROUP BY h3_res6, HOUR(timestamp)
     
-    h3_column = f"h3_res{resolution}"
-    agg_table_name = f"{base_agg_table_name}_res{resolution}"
+    UNION ALL
     
-    aggregation_query = f"""
-        SELECT 
-            {h3_column},
-            HOUR(timestamp) AS hour_of_day,
-            COUNT(DISTINCT mmsi) AS unique_vessels,
-            COUNT(*) AS total_records
-        FROM {full_table_name}
-        GROUP BY {h3_column}, HOUR(timestamp)
-        ORDER BY {h3_column}, hour_of_day
-    """
+    SELECT 
+        7 AS resolution,
+        h3_res7 AS h3_cell,
+        HOUR(timestamp) AS hour_of_day,
+        COUNT(DISTINCT mmsi) AS unique_vessels,
+        COUNT(*) AS total_records
+    FROM {full_table_name}
+    GROUP BY h3_res7, HOUR(timestamp)
     
-    print(f"Creating table: {agg_table_name}")
+    UNION ALL
     
-    # Execute aggregation and write to Delta table
-    agg_df = spark.sql(aggregation_query)
-    agg_df.write.format("delta").mode("overwrite").saveAsTable(agg_table_name)
+    SELECT 
+        8 AS resolution,
+        h3_res8 AS h3_cell,
+        HOUR(timestamp) AS hour_of_day,
+        COUNT(DISTINCT mmsi) AS unique_vessels,
+        COUNT(*) AS total_records
+    FROM {full_table_name}
+    GROUP BY h3_res8, HOUR(timestamp)
     
-    # Show statistics
-    total_hexagons = agg_df.select(h3_column).distinct().count()
-    total_records = agg_df.count()
+    UNION ALL
     
-    print(f"✓ Successfully created: {agg_table_name}")
-    print(f"  - Unique hexagons: {total_hexagons:,}")
-    print(f"  - Total aggregated records: {total_records:,}")
-    
-    # Display sample
-    print(f"\nSample data:")
-    display(agg_df.limit(10))
+    SELECT 
+        9 AS resolution,
+        h3_res9 AS h3_cell,
+        HOUR(timestamp) AS hour_of_day,
+        COUNT(DISTINCT mmsi) AS unique_vessels,
+        COUNT(*) AS total_records
+    FROM {full_table_name}
+    GROUP BY h3_res9, HOUR(timestamp)
+"""
+
+# Execute aggregation and write to Delta table
+agg_df = spark.sql(aggregation_query)
+agg_df.write.format("delta").mode("overwrite").saveAsTable(agg_table_name)
+
+print(f"✓ Successfully created: {agg_table_name}")
+
+# Show statistics by resolution
+print("\nAggregation statistics by resolution:")
+stats_df = spark.sql(f"""
+    SELECT 
+        resolution,
+        COUNT(DISTINCT h3_cell) AS unique_hexagons,
+        COUNT(*) AS total_aggregated_records
+    FROM {agg_table_name}
+    GROUP BY resolution
+    ORDER BY resolution
+""")
+display(stats_df)
+
+# Display sample data from each resolution
+print("\nSample data from aggregation table:")
+sample_df = spark.sql(f"""
+    SELECT *
+    FROM {agg_table_name}
+    ORDER BY resolution, h3_cell, hour_of_day
+    LIMIT 20
+""")
+display(sample_df)
 
 print(f"\n{'='*60}")
-print("All aggregation tables created successfully!")
+print("Aggregation table created successfully!")
+print(f"Query by resolution: WHERE resolution = 9")
 print(f"{'='*60}")

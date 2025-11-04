@@ -26,8 +26,8 @@ from pyspark.sql.functions import col
 # COMMAND ----------
 
 # Configuration - Update these values to match your environment
-CATALOG = "dbacademy"
-SCHEMA = "labuser12249714_1761120614"  # Replace with your schema
+CATALOG = "ais"
+SCHEMA = "ais_assets"  # Replace with your schema
 TARGET_TABLE = "ais_data_sample"
 
 # Resolution selection - Choose: 6, 7, 8, or 9
