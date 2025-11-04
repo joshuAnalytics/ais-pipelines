@@ -26,16 +26,17 @@ from pyspark.sql.functions import col
 # COMMAND ----------
 
 # Configuration - Update these values to match your environment
-CATALOG = "dbacademy"
-SCHEMA = "labuser12249714_1761120614"  # Replace with your schema
+CATALOG = "ais"
+SCHEMA = "ais_assets"  # Replace with your schema
 TARGET_TABLE = "ais_data_sample"
 
-# Resolution selection - Choose: 6, 7, 8, or 9
+# Resolution selection - Choose: 5, 6, 7, 8, or 9
 SELECTED_RESOLUTION = 6
 
 print(f"Using H3 Resolution: {SELECTED_RESOLUTION}")
 print(f"\nResolution details:")
 resolution_info = {
+    5: "~252 km² per hex - Large scale/country-wide patterns",
     6: "~36 km² per hex - Continental/ocean-wide patterns",
     7: "~5 km² per hex - Regional shipping lanes",
     8: "~0.7 km² per hex - Port areas and coastal zones",
@@ -52,14 +53,15 @@ print(f"  {resolution_info[SELECTED_RESOLUTION]}")
 
 # COMMAND ----------
 
-# Construct table name based on selected resolution
-agg_table_name = f"{CATALOG}.{SCHEMA}.{TARGET_TABLE}_agg_res{SELECTED_RESOLUTION}"
-h3_column = f"h3_res{SELECTED_RESOLUTION}"
+# Construct table name - now using unified aggregation table
+agg_table_name = f"{CATALOG}.{SCHEMA}.{TARGET_TABLE}_agg"
+h3_column = "h3_cell"
 
 print(f"Loading aggregated data from: {agg_table_name}")
+print(f"Filtering for resolution: {SELECTED_RESOLUTION}")
 
-# Load hourly aggregated data
-hourly_agg_df = spark.table(agg_table_name)
+# Load hourly aggregated data and filter by selected resolution
+hourly_agg_df = spark.table(agg_table_name).filter(col('resolution') == SELECTED_RESOLUTION)
 
 print(f"Total hourly records: {hourly_agg_df.count():,}")
 print(f"Unique H3 cells: {hourly_agg_df.select(h3_column).distinct().count():,}")
@@ -188,6 +190,7 @@ print(f"Sample coords: {center_coords}")
 
 # Determine appropriate zoom level based on resolution
 zoom_levels = {
+    5: 3.5,
     6: 4,
     7: 5,
     8: 5.5,
@@ -273,8 +276,8 @@ print(f"\nSample colors:\n{agg_pdf['color'].head()}")
 # MAGIC
 # MAGIC **To change resolution:**
 # MAGIC 1. Edit the `SELECTED_RESOLUTION` variable in the configuration cell
-# MAGIC 2. Choose from: 6, 7, 8, or 9
-# MAGIC 3. Lower resolutions (6, 7) show broader patterns and render faster
+# MAGIC 2. Choose from: 5, 6, 7, 8, or 9
+# MAGIC 3. Lower resolutions (5, 6, 7) show broader patterns and render faster
 # MAGIC 4. Higher resolutions (8, 9) show more detailed local patterns
 # MAGIC 5. Re-run the notebook from the configuration cell onwards
 # MAGIC
