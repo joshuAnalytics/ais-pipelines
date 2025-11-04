@@ -41,6 +41,9 @@ from pyspark.sql.window import Window
 
 from utils.reader import ShapefileDataSource
 
+# Register the custom data source with Spark
+spark.dataSource.register(ShapefileDataSource)
+
 # COMMAND ----------
 
 # MAGIC %md
