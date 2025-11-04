@@ -48,10 +48,6 @@ from utils.reader import ShapefileDataSource
 
 # COMMAND ----------
 
-spark.dataSource.register(ShapefileDataSource)
-
-# COMMAND ----------
-
 w = WorkspaceClient()
 
 user_name = w.current_user.me().user_name
@@ -80,7 +76,7 @@ except ResourceAlreadyExists:
 # Get the directory containing this notebook
 notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
 notebook_dir = os.path.dirname(notebook_path)
-data_path = f"/Workspace{notebook_dir}/data/salish-ports.zip"
+data_path = f"/Workspace{notebook_dir}/data/salish-ports.shp"
 shutil.copy(data_path, INPUT_PATH)
 
 # COMMAND ----------
