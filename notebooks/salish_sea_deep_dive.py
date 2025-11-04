@@ -26,6 +26,7 @@
 
 # COMMAND ----------
 
+import glob
 import os
 import shutil
 
@@ -79,8 +80,11 @@ except ResourceAlreadyExists:
 # Get the directory containing this notebook
 notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
 notebook_dir = os.path.dirname(notebook_path)
-data_path = f"/Workspace{notebook_dir}/data/salish-ports.shp"
-shutil.copy(data_path, INPUT_PATH)
+
+# Copy all shapefile components (.shp, .shx, .dbf, .prj, etc.)
+shapefile_base = f"/Workspace{notebook_dir}/data/salish-ports"
+for file in glob.glob(f"{shapefile_base}.*"):
+    shutil.copy(file, INPUT_PATH)
 
 # COMMAND ----------
 
