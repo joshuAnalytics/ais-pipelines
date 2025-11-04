@@ -182,9 +182,11 @@ print(f"Successfully created Delta table: {full_table_name}")
 # MAGIC - **h3_res9/10/11**: H3 indices at multiple resolutions for spatial indexing
 # MAGIC
 # MAGIC H3 Resolution Reference:
-# MAGIC - **Resolution 9**: ~174m average hexagon edge length (~0.10 km²) - Good for regional analysis
-# MAGIC - **Resolution 10**: ~65m average hexagon edge length (~0.01 km²) - Good for local area analysis
-# MAGIC - **Resolution 11**: ~25m average hexagon edge length (~0.001 km²) - Good for precise location tracking
+# MAGIC - **Resolution 5**: ~252 km² per hex - Large scale / country-wide patterns
+# MAGIC - **Resolution 6**: ~36 km² per hex - Continental/ocean-wide patterns
+# MAGIC - **Resolution 7**: ~5 km² per hex - Regional shipping lanes
+# MAGIC - **Resolution 8**: ~0.7 km² per hex - Port areas and coastal zones
+# MAGIC - **Resolution 9**: ~0.1 km² per hex - Detailed vessel movements
 
 # COMMAND ----------
 
@@ -198,6 +200,7 @@ spark.sql(f"""
         *,
         ST_Point(longitude, latitude, 4326) AS point_geom,
         ST_IsValid(ST_Point(longitude, latitude, 4326)) AS is_valid_geom,
+        h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 5) AS h3_res5,
         h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 6) AS h3_res6,
         h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 7) AS h3_res7,
         h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 8) AS h3_res8,
@@ -218,6 +221,7 @@ spark.sql(f"""
         longitude,
         point_geom,
         is_valid_geom,
+        h3_res5,
         h3_res6,
         h3_res7,
         h3_res8,
@@ -245,9 +249,10 @@ display(counts_df)
 # MAGIC %md
 # MAGIC ## Aggregate Data by H3 Resolutions and Hour of Day
 # MAGIC
-# MAGIC Create a single aggregation table for all H3 resolutions (6, 7, 8, 9) to support different zoom levels in visualization.
+# MAGIC Create a single aggregation table for all H3 resolutions (5, 6, 7, 8, 9) to support different zoom levels in visualization.
 # MAGIC
 # MAGIC Resolution Reference:
+# MAGIC - **Resolution 5**: ~252 km² per hex - Large scale / country-wide patterns
 # MAGIC - **Resolution 6**: ~36 km² per hex - Continental/ocean-wide patterns
 # MAGIC - **Resolution 7**: ~5 km² per hex - Regional shipping lanes
 # MAGIC - **Resolution 8**: ~0.7 km² per hex - Port areas and coastal zones
@@ -263,6 +268,17 @@ print(f"{'='*60}")
 
 # Create aggregation query combining all resolutions using UNION ALL
 aggregation_query = f"""
+    SELECT 
+        5 AS resolution,
+        h3_res5 AS h3_cell,
+        HOUR(timestamp) AS hour_of_day,
+        COUNT(DISTINCT mmsi) AS unique_vessels,
+        COUNT(*) AS total_records
+    FROM {full_table_name}
+    GROUP BY h3_res5, HOUR(timestamp)
+    
+    UNION ALL
+    
     SELECT 
         6 AS resolution,
         h3_res6 AS h3_cell,
