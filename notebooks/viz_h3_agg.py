@@ -31,7 +31,7 @@ SCHEMA = "ais_assets"  # Replace with your schema
 TARGET_TABLE = "ais_data_sample"
 
 # Resolution selection - Choose: 5, 6, 7, 8, or 9
-SELECTED_RESOLUTION = 6
+SELECTED_RESOLUTION = 5
 
 print(f"Using H3 Resolution: {SELECTED_RESOLUTION}")
 print(f"\nResolution details:")
