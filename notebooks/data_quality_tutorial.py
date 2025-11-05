@@ -9,7 +9,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -e ../ --quiet
+# MAGIC %pip install -e ../ --no-deps --quiet
 dbutils.library.restartPython()
 
 # COMMAND ----------
