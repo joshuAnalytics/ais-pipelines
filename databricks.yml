@@ -70,6 +70,15 @@ variables:
   download_limit:
     description: "Maximum number of files to download (0 = all files)"
     default: 1
+  
+  # Create AIS Records Configuration
+  create_ais_records_target_table:
+    description: "Target table name for AIS records"
+    default: ais_records
+  
+  create_ais_records_limit:
+    description: "Maximum number of CSV files to process (0 = all files)"
+    default: 0
 
 artifacts:
   # Build your project into a wheel using uv, so the exact env is defined by your pyproject/uv.lock.
@@ -120,6 +129,25 @@ resources:
               - "${var.decompressor_limit}"
               - "--delete-compressed"
               - "${var.decompressor_delete_compressed}"
+          environment_key: default
+        
+        - task_key: create_ais_records
+          depends_on:
+            - task_key: decompress_files
+          python_wheel_task:
+            package_name: ais_pipelines
+            entry_point: create-ais-records
+            parameters:
+              - "--catalog"
+              - "${var.catalog}"
+              - "--schema"
+              - "${var.schema}"
+              - "--landing-volume"
+              - "${var.landing_volume}"
+              - "--target-table"
+              - "${var.create_ais_records_target_table}"
+              - "--limit"
+              - "${var.create_ais_records_limit}"
           environment_key: default
       
       environments:
