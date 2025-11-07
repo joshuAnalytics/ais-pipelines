@@ -69,7 +69,7 @@ variables:
   
   download_limit:
     description: "Maximum number of files to download (0 = all files)"
-    default: 1
+    default: 10
   
   # Create AIS Records Configuration
   create_ais_records_target_table:
@@ -78,7 +78,7 @@ variables:
   
   create_ais_records_limit:
     description: "Maximum number of CSV files to process (0 = all files)"
-    default: 0
+    default: 10
 
 artifacts:
   # Build your project into a wheel using uv, so the exact env is defined by your pyproject/uv.lock.

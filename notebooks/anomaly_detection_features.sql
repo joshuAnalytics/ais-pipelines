@@ -1,5 +1,8 @@
 -- Databricks notebook source
-select min(timestamp),max(timestamp) from ais_data_sample
+-- Anomaly Detection SQL - Updated for ais_records table
+-- This version uses PascalCase column names (MMSI, VesselName, LAT, LON, SOG, COG, etc.)
+
+select min(timestamp),max(timestamp) from ais_records
 
 -- COMMAND ----------
 
@@ -9,23 +12,23 @@ use schema ais_assets;
 CREATE OR REPLACE TABLE vessel_behavioral_features AS
 WITH vessel_trajectory AS (
   SELECT 
-    mmsi,
-    vessel_name,
-    vessel_type,
+    MMSI,
+    VesselName,
+    VesselType,
     timestamp,
-    latitude,
-    longitude,
-    sog,
-    cog,
+    LAT,
+    LON,
+    SOG,
+    COG,
     h3_res8,
     h3_res7,
     h3_res6,
     -- Window functions for trajectory analysis
     LAG(timestamp, 1) OVER w as prev_timestamp,
-    LAG(latitude, 1) OVER w as prev_lat,
-    LAG(longitude, 1) OVER w as prev_lon,
-    LAG(sog, 1) OVER w as prev_sog,
-    LAG(cog, 1) OVER w as prev_cog,
+    LAG(LAT, 1) OVER w as prev_lat,
+    LAG(LON, 1) OVER w as prev_lon,
+    LAG(SOG, 1) OVER w as prev_sog,
+    LAG(COG, 1) OVER w as prev_cog,
     LAG(h3_res8, 1) OVER w as prev_h3_res8,
     LAG(h3_res7, 1) OVER w as prev_h3_res7,
     -- Look ahead for gap detection
@@ -33,9 +36,9 @@ WITH vessel_trajectory AS (
     -- Historical patterns
     COUNT(*) OVER w as position_count,
     ROW_NUMBER() OVER w as position_sequence
-  FROM ais_data_sample
+  FROM ais_records
   WHERE timestamp >= '2025-01-01'
-  WINDOW w AS (PARTITION BY mmsi ORDER BY timestamp)
+  WINDOW w AS (PARTITION BY MMSI ORDER BY timestamp)
 ),
 computed_features AS (
   SELECT 
@@ -51,19 +54,19 @@ computed_features AS (
     CASE 
       WHEN prev_lat IS NOT NULL THEN
         ST_Distance(
-          ST_Point(longitude, latitude),
+          ST_Point(LON, LAT),
           ST_Point(prev_lon, prev_lat)
         ) * 111.32  -- Convert degrees to km (approximate)
       ELSE NULL
     END as distance_moved_km,
     
     -- Speed consistency
-    ABS(sog - prev_sog) as speed_change,
+    ABS(SOG - prev_sog) as speed_change,
     
     -- Course consistency  
     CASE 
-      WHEN ABS(cog - prev_cog) > 180 THEN 360 - ABS(cog - prev_cog)
-      ELSE ABS(cog - prev_cog)
+      WHEN ABS(COG - prev_cog) > 180 THEN 360 - ABS(COG - prev_cog)
+      ELSE ABS(COG - prev_cog)
     END as course_change,
     
     -- H3 cell changes (erratic movement indicator)
@@ -74,14 +77,14 @@ computed_features AS (
   WHERE prev_timestamp IS NOT NULL
 )
 SELECT 
-  mmsi,
-  vessel_name,
-  vessel_type,
+  MMSI,
+  VesselName,
+  VesselType,
   timestamp,
-  latitude,
-  longitude,
-  sog,
-  cog,
+  LAT,
+  LON,
+  SOG,
+  COG,
   h3_res8,
   h3_res7,
   h3_res6,
@@ -95,8 +98,8 @@ SELECT
   
   -- Derived anomaly indicators
   CASE WHEN hours_to_next_signal > 6 THEN 1 ELSE 0 END as potential_dark_period,
-  CASE WHEN sog < 0.5 AND prev_sog > 5 THEN 1 ELSE 0 END as sudden_stop,
-  CASE WHEN course_change > 90 AND sog > 5 THEN 1 ELSE 0 END as sharp_turn,
+  CASE WHEN SOG < 0.5 AND prev_sog > 5 THEN 1 ELSE 0 END as sudden_stop,
+  CASE WHEN course_change > 90 AND SOG > 5 THEN 1 ELSE 0 END as sharp_turn,
   
   -- Calculate implied speed from distance/time
   CASE 
@@ -110,12 +113,12 @@ SELECT
   -- Higher threshold accounts for acceleration/deceleration between measurements
   CASE 
     WHEN hours_since_last_signal > 0.1 AND hours_since_last_signal < 2 THEN
-      ABS((distance_moved_km / hours_since_last_signal) - (sog * 1.852))
+      ABS((distance_moved_km / hours_since_last_signal) - (SOG * 1.852))
     ELSE NULL
   END as speed_discrepancy_kmh,
   
   -- Average of current and previous SOG for better comparison
-  (sog + prev_sog) / 2 * 1.852 as avg_sog_kmh
+  (SOG + prev_sog) / 2 * 1.852 as avg_sog_kmh
 FROM computed_features;
 
 
@@ -128,18 +131,18 @@ select * from vessel_behavioral_features limit 5;
 
 CREATE OR REPLACE TABLE vessel_rolling_patterns AS
 SELECT 
-  mmsi,
-  vessel_name,
-  vessel_type,
+  MMSI,
+  VesselName,
+  VesselType,
   timestamp,
   h3_res8,
-  sog,
+  SOG,
   
   -- Rolling statistics (6 hour window)
-  AVG(sog) OVER w6h as avg_speed_6h,
-  STDDEV(sog) OVER w6h as stddev_speed_6h,
-  MIN(sog) OVER w6h as min_speed_6h,
-  MAX(sog) OVER w6h as max_speed_6h,
+  AVG(SOG) OVER w6h as avg_speed_6h,
+  STDDEV(SOG) OVER w6h as stddev_speed_6h,
+  MIN(SOG) OVER w6h as min_speed_6h,
+  MAX(SOG) OVER w6h as max_speed_6h,
   
   AVG(course_change) OVER w6h as avg_course_change_6h,
   MAX(course_change) OVER w6h as max_course_change_6h,
@@ -148,21 +151,21 @@ SELECT
   COUNT(*) OVER w6h as observation_count_6h,
   
   -- Rolling statistics (24 hour window)
-  AVG(sog) OVER w24h as avg_speed_24h,
-  STDDEV(sog) OVER w24h as stddev_speed_24h,
+  AVG(SOG) OVER w24h as avg_speed_24h,
+  STDDEV(SOG) OVER w24h as stddev_speed_24h,
   
   -- Alternative to COUNT(DISTINCT) - approximate unique count
   APPROX_COUNT_DISTINCT(h3_res7) OVER w24h as unique_h3_cells_24h,
   
   -- Loitering detection (low speed, same area)
-  AVG(CASE WHEN sog < 2 THEN 1 ELSE 0 END) OVER w6h as pct_low_speed_6h,
+  AVG(CASE WHEN SOG < 2 THEN 1 ELSE 0 END) OVER w6h as pct_low_speed_6h,
   
   -- Erratic behavior score
-  (AVG(course_change) OVER w6h + STDDEV(sog) OVER w6h) as erratic_score_6h
+  (AVG(course_change) OVER w6h + STDDEV(SOG) OVER w6h) as erratic_score_6h
 FROM vessel_behavioral_features
 WINDOW 
-  w6h AS (PARTITION BY mmsi ORDER BY unix_timestamp(timestamp) RANGE BETWEEN 21600 PRECEDING AND CURRENT ROW),
-  w24h AS (PARTITION BY mmsi ORDER BY unix_timestamp(timestamp) RANGE BETWEEN 86400 PRECEDING AND CURRENT ROW);
+  w6h AS (PARTITION BY MMSI ORDER BY unix_timestamp(timestamp) RANGE BETWEEN 21600 PRECEDING AND CURRENT ROW),
+  w24h AS (PARTITION BY MMSI ORDER BY unix_timestamp(timestamp) RANGE BETWEEN 86400 PRECEDING AND CURRENT ROW);
 
 -- COMMAND ----------
 
@@ -173,15 +176,15 @@ select * from vessel_rolling_patterns limit 5;
 CREATE OR REPLACE TABLE h3_normal_patterns AS
 SELECT 
   h3_res7,
-  vessel_type,
+  VesselType,
   hour(timestamp) as hour_of_day,
   
   -- Speed patterns
-  PERCENTILE_APPROX(sog, 0.5) as median_speed,
-  PERCENTILE_APPROX(sog, 0.25) as q25_speed,
-  PERCENTILE_APPROX(sog, 0.75) as q75_speed,
-  PERCENTILE_APPROX(sog, 0.95) as q95_speed,
-  PERCENTILE_APPROX(sog, 0.05) as q05_speed,
+  PERCENTILE_APPROX(SOG, 0.5) as median_speed,
+  PERCENTILE_APPROX(SOG, 0.25) as q25_speed,
+  PERCENTILE_APPROX(SOG, 0.75) as q75_speed,
+  PERCENTILE_APPROX(SOG, 0.95) as q95_speed,
+  PERCENTILE_APPROX(SOG, 0.05) as q05_speed,
   
   -- Course variation patterns
   AVG(course_change) as avg_course_change,
@@ -189,8 +192,8 @@ SELECT
   
   -- Density patterns
   COUNT(*) as total_observations,
-  COUNT(DISTINCT mmsi) as unique_vessels,
-  COUNT(*) / COUNT(DISTINCT mmsi) as avg_obs_per_vessel,
+  COUNT(DISTINCT MMSI) as unique_vessels,
+  COUNT(*) / COUNT(DISTINCT MMSI) as avg_obs_per_vessel,
   
   -- Dark period patterns
   AVG(hours_to_next_signal) as avg_signal_gap,
@@ -198,7 +201,7 @@ SELECT
 
 FROM vessel_behavioral_features
 WHERE timestamp BETWEEN '2025-01-01' AND '2025-01-31'  -- Historical baseline: 30 days for robust pattern detection
-GROUP BY h3_res7, vessel_type, hour(timestamp);
+GROUP BY h3_res7, VesselType, hour(timestamp);
 
 -- COMMAND ----------
 
@@ -213,27 +216,27 @@ SELECT
   hour(timestamp) as hour_of_day,
   
   -- Vessel density patterns
-  COUNT(DISTINCT mmsi) as avg_vessel_count,
-  PERCENTILE_APPROX(COUNT(DISTINCT mmsi), 0.95) as p95_vessel_count,
-  PERCENTILE_APPROX(COUNT(DISTINCT mmsi), 0.05) as p05_vessel_count,
+  COUNT(DISTINCT MMSI) as avg_vessel_count,
+  PERCENTILE_APPROX(COUNT(DISTINCT MMSI), 0.95) as p95_vessel_count,
+  PERCENTILE_APPROX(COUNT(DISTINCT MMSI), 0.05) as p05_vessel_count,
   
   -- Vessel type distribution
-  MODE(vessel_type) as dominant_vessel_type,
-  COUNT(DISTINCT vessel_type) as vessel_type_diversity,
+  MODE(VesselType) as dominant_vessel_type,
+  COUNT(DISTINCT VesselType) as vessel_type_diversity,
   
   -- Activity characterization
-  AVG(sog) as cell_avg_speed,
-  STDDEV(sog) as cell_stddev_speed,
-  PERCENTILE_APPROX(sog, 0.5) as cell_median_speed,
+  AVG(SOG) as cell_avg_speed,
+  STDDEV(SOG) as cell_stddev_speed,
+  PERCENTILE_APPROX(SOG, 0.5) as cell_median_speed,
   
   -- Classification flags
   CASE 
-    WHEN AVG(sog) > 8 THEN 1 
+    WHEN AVG(SOG) > 8 THEN 1 
     ELSE 0 
   END as is_transit_corridor,
   
   CASE 
-    WHEN AVG(sog) < 2 AND COUNT(DISTINCT mmsi) > 3 THEN 1 
+    WHEN AVG(SOG) < 2 AND COUNT(DISTINCT MMSI) > 3 THEN 1 
     ELSE 0 
   END as is_stationary_area,
   
@@ -254,13 +257,13 @@ select * from h3_cell_statistics limit 10;
 CREATE OR REPLACE TABLE vessel_spatial_context AS
 WITH vessel_positions AS (
   SELECT 
-    mmsi,
-    vessel_name,
-    vessel_type,
+    MMSI,
+    VesselName,
+    VesselType,
     timestamp,
     h3_res7,
     h3_res8,
-    sog,
+    SOG,
     -- Create time bucket (1 hour windows)
     date_trunc('hour', timestamp) as time_bucket
   FROM vessel_behavioral_features
@@ -269,21 +272,21 @@ WITH vessel_positions AS (
 -- Expand each position to include k-ring neighbors (k=1)
 vessel_with_neighbors AS (
   SELECT 
-    mmsi,
-    vessel_name,
-    vessel_type,
+    MMSI,
+    VesselName,
+    VesselType,
     timestamp,
     h3_res7,
     h3_res8,
     time_bucket,
-    sog,
+    SOG,
     explode(h3_kring(h3_res8, 1)) as neighbor_cell
   FROM vessel_positions
 ),
 -- Count vessels in neighborhood
 neighborhood_counts AS (
   SELECT 
-    v1.mmsi,
+    v1.MMSI,
     v1.timestamp,
     v1.h3_res8,
     v1.time_bucket,
@@ -291,35 +294,35 @@ neighborhood_counts AS (
     -- Count distinct vessels in same cell (exact location)
     COUNT(DISTINCT CASE 
       WHEN v2.h3_res8 = v1.h3_res8 
-        AND v2.mmsi != v1.mmsi 
+        AND v2.MMSI != v1.MMSI 
         AND v2.time_bucket = v1.time_bucket
-      THEN v2.mmsi 
+      THEN v2.MMSI 
     END) as vessels_in_same_cell,
     
     -- Count distinct vessels in k=1 neighborhood
     COUNT(DISTINCT CASE 
       WHEN v2.neighbor_cell = v1.h3_res8
-        AND v2.mmsi != v1.mmsi
+        AND v2.MMSI != v1.MMSI
         AND v2.time_bucket = v1.time_bucket
-      THEN v2.mmsi 
+      THEN v2.MMSI 
     END) as vessels_in_kring1,
     
     -- Count distinct vessel types nearby
     COUNT(DISTINCT CASE 
       WHEN v2.neighbor_cell = v1.h3_res8
-        AND v2.mmsi != v1.mmsi
+        AND v2.MMSI != v1.MMSI
         AND v2.time_bucket = v1.time_bucket
-      THEN v2.vessel_type 
+      THEN v2.VesselType 
     END) as vessel_types_nearby
     
   FROM vessel_with_neighbors v1
   LEFT JOIN vessel_with_neighbors v2
     ON v1.time_bucket = v2.time_bucket
-  GROUP BY v1.mmsi, v1.timestamp, v1.h3_res8, v1.time_bucket
+  GROUP BY v1.MMSI, v1.timestamp, v1.h3_res8, v1.time_bucket
 )
 SELECT 
-  vp.mmsi,
-  vp.vessel_name,
+  vp.MMSI,
+  vp.VesselName,
   vp.timestamp,
   vp.h3_res8,
   
@@ -341,7 +344,7 @@ SELECT
 
 FROM vessel_positions vp
 LEFT JOIN neighborhood_counts nc
-  ON vp.mmsi = nc.mmsi 
+  ON vp.MMSI = nc.MMSI 
   AND vp.timestamp = nc.timestamp
   AND vp.h3_res8 = nc.h3_res8;
 
@@ -355,17 +358,17 @@ select * from vessel_spatial_context limit 10;
 -- This table will be used by the Autoencoder model
 CREATE OR REPLACE TABLE vessel_ml_features AS
 SELECT 
-  v.mmsi,
-  v.vessel_name,
-  v.vessel_type,
+  v.MMSI,
+  v.VesselName,
+  v.VesselType,
   v.timestamp,
-  v.latitude,
-  v.longitude,
+  v.LAT,
+  v.LON,
   v.h3_res8,
   v.h3_res7,
   v.h3_res6,
-  v.sog,
-  v.cog,
+  v.SOG,
+  v.COG,
   v.hours_to_next_signal,
   v.hours_since_last_signal,
   v.distance_moved_km,
@@ -441,16 +444,16 @@ SELECT
 FROM vessel_behavioral_features v
 
 LEFT JOIN vessel_rolling_patterns r 
-  ON v.mmsi = r.mmsi 
+  ON v.MMSI = r.MMSI 
   AND v.timestamp = r.timestamp
 
 LEFT JOIN h3_normal_patterns n 
   ON v.h3_res7 = n.h3_res7 
-  AND v.vessel_type = n.vessel_type
+  AND v.VesselType = n.VesselType
   AND hour(v.timestamp) = n.hour_of_day
 
 LEFT JOIN vessel_spatial_context sc
-  ON v.mmsi = sc.mmsi
+  ON v.MMSI = sc.MMSI
   AND v.timestamp = sc.timestamp
   AND v.h3_res8 = sc.h3_res8
 

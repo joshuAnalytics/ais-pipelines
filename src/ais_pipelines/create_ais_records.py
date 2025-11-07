@@ -57,10 +57,10 @@ class DataTransformer:
 
     @staticmethod
     def add_timestamp(df: DataFrame) -> DataFrame:
-        """Add timestamp column from base_date_time string."""
+        """Add timestamp column from BaseDateTime string."""
         return df.withColumn(
             "timestamp",
-            to_timestamp(col("base_date_time"), "yyyy-MM-dd'T'HH:mm:ss")
+            to_timestamp(col("BaseDateTime"), "yyyy-MM-dd'T'HH:mm:ss")
         )
 
 
@@ -92,13 +92,13 @@ class SpatialTableCreator:
             CREATE OR REPLACE TABLE {self.full_table_name} AS
             SELECT 
                 *,
-                ST_Point(longitude, latitude, 4326) AS point_geom,
-                ST_IsValid(ST_Point(longitude, latitude, 4326)) AS is_valid_geom,
-                h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 5) AS h3_res5,
-                h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 6) AS h3_res6,
-                h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 7) AS h3_res7,
-                h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 8) AS h3_res8,
-                h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 9) AS h3_res9
+                ST_Point(LON, LAT, 4326) AS point_geom,
+                ST_IsValid(ST_Point(LON, LAT, 4326)) AS is_valid_geom,
+                h3_pointash3(ST_AsText(ST_Point(LON, LAT, 4326)), 5) AS h3_res5,
+                h3_pointash3(ST_AsText(ST_Point(LON, LAT, 4326)), 6) AS h3_res6,
+                h3_pointash3(ST_AsText(ST_Point(LON, LAT, 4326)), 7) AS h3_res7,
+                h3_pointash3(ST_AsText(ST_Point(LON, LAT, 4326)), 8) AS h3_res8,
+                h3_pointash3(ST_AsText(ST_Point(LON, LAT, 4326)), 9) AS h3_res9
             FROM {temp_view}
         """)
         
@@ -139,9 +139,9 @@ class DataQualityValidator:
         print("\nSample records with spatial columns:")
         self.spark.sql(f"""
             SELECT 
-                base_date_time,
-                latitude,
-                longitude,
+                BaseDateTime,
+                LAT,
+                LON,
                 point_geom,
                 is_valid_geom,
                 h3_res5,
