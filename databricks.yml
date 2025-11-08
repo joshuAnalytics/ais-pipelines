@@ -79,6 +79,23 @@ variables:
   create_ais_records_limit:
     description: "Maximum number of CSV files to process (0 = all files)"
     default: 10
+  
+  # Anomaly Features Configuration
+  anomaly_features_start_date:
+    description: "Start date for anomaly feature generation (YYYY-MM-DD)"
+    default: "2025-01-01"
+  
+  anomaly_features_end_date:
+    description: "End date for anomaly feature generation (YYYY-MM-DD)"
+    default: "2025-01-10"
+  
+  anomaly_features_session_gap_hours:
+    description: "Hours gap to define session boundaries"
+    default: 24
+  
+  anomaly_features_historical_baseline_days:
+    description: "Days for historical baseline patterns"
+    default: 5
 
 artifacts:
   # Build your project into a wheel using uv, so the exact env is defined by your pyproject/uv.lock.
@@ -90,8 +107,8 @@ artifacts:
 
 resources:
   jobs:
-    ais_pipeline:
-      name: "[${bundle.target}] AIS Pipeline"
+    ais_pipeline_full:
+      name: "[${bundle.target}] AIS Pipeline - Full"
       tasks:
         - task_key: download_ais
           python_wheel_task:
@@ -148,6 +165,56 @@ resources:
               - "${var.create_ais_records_target_table}"
               - "--limit"
               - "${var.create_ais_records_limit}"
+          environment_key: default
+        
+        - task_key: create_anomaly_features
+          depends_on:
+            - task_key: create_ais_records
+          python_wheel_task:
+            package_name: ais_pipelines
+            entry_point: anomaly-features
+            parameters:
+              - "--catalog"
+              - "${var.catalog}"
+              - "--schema"
+              - "${var.schema}"
+              - "--start-date"
+              - "${var.anomaly_features_start_date}"
+              - "--end-date"
+              - "${var.anomaly_features_end_date}"
+              - "--session-gap-hours"
+              - "${var.anomaly_features_session_gap_hours}"
+              - "--historical-baseline-days"
+              - "${var.anomaly_features_historical_baseline_days}"
+          environment_key: default
+      
+      environments:
+        - environment_key: default
+          spec:
+            client: "4"
+            dependencies:
+              - ./dist/*.whl
+    
+    ais_pipeline_features:
+      name: "[${bundle.target}] AIS Pipeline - Features Only"
+      tasks:
+        - task_key: create_anomaly_features
+          python_wheel_task:
+            package_name: ais_pipelines
+            entry_point: anomaly-features
+            parameters:
+              - "--catalog"
+              - "${var.catalog}"
+              - "--schema"
+              - "${var.schema}"
+              - "--start-date"
+              - "${var.anomaly_features_start_date}"
+              - "--end-date"
+              - "${var.anomaly_features_end_date}"
+              - "--session-gap-hours"
+              - "${var.anomaly_features_session_gap_hours}"
+              - "--historical-baseline-days"
+              - "${var.anomaly_features_historical_baseline_days}"
           environment_key: default
       
       environments:
