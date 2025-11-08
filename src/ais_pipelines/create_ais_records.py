@@ -47,6 +47,36 @@ class CsvReader:
             .csv(csv_files)
         )
         
+        # Standardize column names to snake_case
+        column_mapping = {
+            "BaseDateTime": "base_date_time",
+            "VesselName": "vessel_name",
+            "Draft": "draft",
+            "Heading": "heading",
+            "Length": "length",
+            "MMSI": "mmsi",
+            "Latitude": "latitude",
+            "Longitude": "longitude",
+            "LAT": "latitude",
+            "LON": "longitude",
+            "SOG": "sog",
+            "COG": "cog",
+            "VesselType": "vessel_type",
+            "Status": "status",
+            "Width": "width",
+            "Draught": "draught",
+            "Destination": "destination",
+            "ETA": "eta",
+            "IMO": "imo",
+            "CallSign": "call_sign",
+            "Flag": "flag"
+        }
+        
+        # Rename columns that exist in the dataframe
+        for old_name, new_name in column_mapping.items():
+            if old_name in df.columns:
+                df = df.withColumnRenamed(old_name, new_name)
+        
         row_count = df.count()
         print(f"Loaded {row_count:,} records from {len(csv_files)} CSV file(s)")
         return df
@@ -57,10 +87,10 @@ class DataTransformer:
 
     @staticmethod
     def add_timestamp(df: DataFrame) -> DataFrame:
-        """Add timestamp column from BaseDateTime string."""
+        """Add timestamp column from base_date_time string."""
         return df.withColumn(
             "timestamp",
-            to_timestamp(col("BaseDateTime"), "yyyy-MM-dd'T'HH:mm:ss")
+            to_timestamp(col("base_date_time"), "yyyy-MM-dd'T'HH:mm:ss")
         )
 
 
@@ -92,13 +122,13 @@ class SpatialTableCreator:
             CREATE OR REPLACE TABLE {self.full_table_name} AS
             SELECT 
                 *,
-                ST_Point(LON, LAT, 4326) AS point_geom,
-                ST_IsValid(ST_Point(LON, LAT, 4326)) AS is_valid_geom,
-                h3_pointash3(ST_AsText(ST_Point(LON, LAT, 4326)), 5) AS h3_res5,
-                h3_pointash3(ST_AsText(ST_Point(LON, LAT, 4326)), 6) AS h3_res6,
-                h3_pointash3(ST_AsText(ST_Point(LON, LAT, 4326)), 7) AS h3_res7,
-                h3_pointash3(ST_AsText(ST_Point(LON, LAT, 4326)), 8) AS h3_res8,
-                h3_pointash3(ST_AsText(ST_Point(LON, LAT, 4326)), 9) AS h3_res9
+                ST_Point(longitude, latitude, 4326) AS point_geom,
+                ST_IsValid(ST_Point(longitude, latitude, 4326)) AS is_valid_geom,
+                h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 5) AS h3_res5,
+                h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 6) AS h3_res6,
+                h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 7) AS h3_res7,
+                h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 8) AS h3_res8,
+                h3_pointash3(ST_AsText(ST_Point(longitude, latitude, 4326)), 9) AS h3_res9
             FROM {temp_view}
         """)
         
@@ -139,9 +169,9 @@ class DataQualityValidator:
         print("\nSample records with spatial columns:")
         self.spark.sql(f"""
             SELECT 
-                BaseDateTime,
-                LAT,
-                LON,
+                base_date_time,
+                latitude,
+                longitude,
                 point_geom,
                 is_valid_geom,
                 h3_res5,
