@@ -30,11 +30,13 @@ class BehavioralFeaturesCreator:
     def __init__(
         self, 
         spark: SparkSession, 
-        full_table_name: str, 
+        full_table_name: str,
+        ais_records_table: str,
         config: AnomalyFeaturesConfig
     ) -> None:
         self.spark = spark
         self.full_table_name = full_table_name
+        self.ais_records_table = ais_records_table
         self.config = config
     
     def create(self) -> int:
@@ -69,7 +71,7 @@ class BehavioralFeaturesCreator:
               THEN 1 
               ELSE 0 
             END as is_new_session
-          FROM ais_records
+          FROM {self.ais_records_table}
           WHERE timestamp >= '{self.config.start_date}'
             AND timestamp <= '{self.config.end_date}'
           WINDOW w AS (PARTITION BY mmsi ORDER BY timestamp)
@@ -460,43 +462,59 @@ class H3CellStatisticsCreator:
         
         query = f"""
         CREATE OR REPLACE TABLE {self.full_table_name} AS
+        WITH base_aggregations AS (
+          -- First level: aggregate vessel counts and activity metrics per time period
+          SELECT 
+            h3_res7,
+            h3_res8,
+            hour(timestamp) as hour_of_day,
+            COUNT(DISTINCT mmsi) as vessel_count,
+            COUNT(DISTINCT vessel_type) as vessel_type_diversity,
+            AVG(sog) as cell_avg_speed,
+            STDDEV(sog) as cell_stddev_speed,
+            PERCENTILE_APPROX(sog, 0.5) as cell_median_speed,
+            COUNT(*) as total_observations,
+            MODE(vessel_type) as dominant_vessel_type
+          FROM {self.behavioral_features_table}
+          WHERE timestamp BETWEEN '{self.config.start_date}' AND '{self.baseline_end}'
+            AND gap_type != 'session_boundary'
+            AND is_session_start = 0
+          GROUP BY h3_res7, h3_res8, hour(timestamp)
+        )
         SELECT 
           h3_res7,
           h3_res8,
-          hour(timestamp) as hour_of_day,
+          hour_of_day,
           
-          -- Vessel density patterns
-          COUNT(DISTINCT mmsi) as avg_vessel_count,
-          PERCENTILE_APPROX(COUNT(DISTINCT mmsi), 0.95) as p95_vessel_count,
-          PERCENTILE_APPROX(COUNT(DISTINCT mmsi), 0.05) as p05_vessel_count,
+          -- Vessel density patterns (calculated from pre-aggregated counts)
+          AVG(vessel_count) as avg_vessel_count,
+          PERCENTILE_APPROX(vessel_count, 0.95) as p95_vessel_count,
+          PERCENTILE_APPROX(vessel_count, 0.05) as p05_vessel_count,
           
           -- Vessel type distribution
-          MODE(vessel_type) as dominant_vessel_type,
-          COUNT(DISTINCT vessel_type) as vessel_type_diversity,
+          dominant_vessel_type,
+          AVG(vessel_type_diversity) as vessel_type_diversity,
           
           -- Activity characterization
-          AVG(sog) as cell_avg_speed,
-          STDDEV(sog) as cell_stddev_speed,
-          PERCENTILE_APPROX(sog, 0.5) as cell_median_speed,
+          AVG(cell_avg_speed) as cell_avg_speed,
+          AVG(cell_stddev_speed) as cell_stddev_speed,
+          AVG(cell_median_speed) as cell_median_speed,
           
           -- Classification flags
           CASE 
-            WHEN AVG(sog) > 8 THEN 1 
+            WHEN AVG(cell_avg_speed) > 8 THEN 1 
             ELSE 0 
           END as is_transit_corridor,
           
           CASE 
-            WHEN AVG(sog) < 2 AND COUNT(DISTINCT mmsi) > 3 THEN 1 
+            WHEN AVG(cell_avg_speed) < 2 AND AVG(vessel_count) > 3 THEN 1 
             ELSE 0 
           END as is_stationary_area,
           
-          COUNT(*) as total_observations
+          SUM(total_observations) as total_observations
         
-        FROM {self.behavioral_features_table}
-        WHERE timestamp BETWEEN '{self.config.start_date}' AND '{self.baseline_end}'
-          AND gap_type != 'session_boundary'
-          AND is_session_start = 0
-        GROUP BY h3_res7, h3_res8, hour(timestamp)
+        FROM base_aggregations
+        GROUP BY h3_res7, h3_res8, hour_of_day, dominant_vessel_type
         """
         
         self.spark.sql(query)
@@ -841,6 +859,7 @@ class VesselAnomalyFeaturesOrchestrator:
         )
         
         # Table names
+        self.ais_records_table = f"{catalog}.{schema}.ais_records"
         self.behavioral_features_table = f"{catalog}.{schema}.vessel_behavioral_features"
         self.rolling_patterns_table = f"{catalog}.{schema}.vessel_rolling_patterns"
         self.h3_normal_patterns_table = f"{catalog}.{schema}.h3_normal_patterns"
@@ -868,6 +887,7 @@ class VesselAnomalyFeaturesOrchestrator:
         behavioral_creator = BehavioralFeaturesCreator(
             self.spark,
             self.behavioral_features_table,
+            self.ais_records_table,
             self.config
         )
         behavioral_count = behavioral_creator.create()

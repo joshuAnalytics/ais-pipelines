@@ -83,11 +83,11 @@ variables:
   # Anomaly Features Configuration
   anomaly_features_start_date:
     description: "Start date for anomaly feature generation (YYYY-MM-DD)"
-    default: "2025-01-01"
+    default: "2024-01-01"
   
   anomaly_features_end_date:
     description: "End date for anomaly feature generation (YYYY-MM-DD)"
-    default: "2025-01-10"
+    default: "2024-01-10"
   
   anomaly_features_session_gap_hours:
     description: "Hours gap to define session boundaries"
