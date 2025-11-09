@@ -275,6 +275,13 @@ class BehavioralFeaturesCreator:
         
         self.spark.sql(query)
         
+        # Add Z-ordering for query performance
+        print(f"Optimizing {self.full_table_name} with Z-ordering...")
+        self.spark.sql(f"""
+        OPTIMIZE {self.full_table_name}
+        ZORDER BY (h3_res8, timestamp, mmsi)
+        """)
+        
         row_count = self.spark.table(self.full_table_name).count()
         print(f"Created {self.full_table_name}: {row_count:,} records")
         
@@ -525,8 +532,8 @@ class H3CellStatisticsCreator:
         return row_count
 
 
-class SpatialContextCreator:
-    """Creates vessel spatial context features."""
+class CellHourlyStatisticsCreator:
+    """Creates pre-aggregated cell-level statistics for spatial context."""
     
     def __init__(
         self, 
@@ -547,103 +554,165 @@ class SpatialContextCreator:
         self.spatial_start = start_date.strftime('%Y-%m-%d')
     
     def create(self) -> int:
+        """Create cell_hourly_statistics table and return row count."""
+        print(f"\nCreating table: {self.full_table_name}")
+        print(f"Spatial context window: {self.spatial_start} to {self.config.end_date}")
+        
+        query = f"""
+        CREATE OR REPLACE TABLE {self.full_table_name}
+        PARTITIONED BY (date_partition)
+        AS
+        SELECT 
+          h3_res8,
+          h3_res7,
+          date_trunc('hour', timestamp) as time_bucket,
+          date(timestamp) as date_partition,
+          
+          -- Vessel counts
+          COUNT(DISTINCT mmsi) as vessel_count,
+          COUNT(DISTINCT vessel_type) as vessel_type_count,
+          
+          -- Activity metrics
+          AVG(sog) as avg_speed,
+          COUNT(*) as observation_count
+          
+        FROM {self.behavioral_features_table}
+        WHERE timestamp >= '{self.spatial_start}'
+          AND timestamp <= '{self.config.end_date}'
+          AND is_session_start = 0
+        GROUP BY h3_res8, h3_res7, date_trunc('hour', timestamp), date(timestamp)
+        """
+        
+        self.spark.sql(query)
+        
+        # Add Z-ordering for query performance
+        print(f"Optimizing {self.full_table_name} with Z-ordering...")
+        self.spark.sql(f"""
+        OPTIMIZE {self.full_table_name}
+        ZORDER BY (h3_res8, time_bucket)
+        """)
+        
+        row_count = self.spark.table(self.full_table_name).count()
+        print(f"Created {self.full_table_name}: {row_count:,} records")
+        
+        return row_count
+
+
+class SpatialContextCreator:
+    """Creates vessel spatial context features."""
+    
+    def __init__(
+        self, 
+        spark: SparkSession, 
+        full_table_name: str,
+        behavioral_features_table: str,
+        cell_hourly_stats_table: str,
+        config: AnomalyFeaturesConfig
+    ) -> None:
+        self.spark = spark
+        self.full_table_name = full_table_name
+        self.behavioral_features_table = behavioral_features_table
+        self.cell_hourly_stats_table = cell_hourly_stats_table
+        self.config = config
+        
+        # Calculate spatial context date range
+        from datetime import datetime, timedelta
+        end_date = datetime.strptime(config.end_date, '%Y-%m-%d')
+        start_date = end_date - timedelta(days=config.spatial_context_days)
+        self.spatial_start = start_date.strftime('%Y-%m-%d')
+    
+    def create(self) -> int:
         """Create vessel_spatial_context table and return row count."""
         print(f"\nCreating table: {self.full_table_name}")
         print(f"Spatial context window: {self.spatial_start} to {self.config.end_date}")
         
         query = f"""
-        CREATE OR REPLACE TABLE {self.full_table_name} AS
+        CREATE OR REPLACE TABLE {self.full_table_name}
+        PARTITIONED BY (date_partition)
+        AS
         WITH vessel_positions AS (
           SELECT 
             mmsi,
             vessel_name,
-            vessel_type,
             timestamp,
-            session_id,
-            h3_res7,
             h3_res8,
-            sog,
-            is_session_start,
+            date(timestamp) as date_partition,
             date_trunc('hour', timestamp) as time_bucket
           FROM {self.behavioral_features_table}
           WHERE timestamp >= '{self.spatial_start}'
             AND timestamp <= '{self.config.end_date}'
             AND is_session_start = 0
         ),
-        vessel_with_neighbors AS (
+        vessel_with_same_cell_stats AS (
+          -- Join with own cell statistics
           SELECT 
-            mmsi,
-            vessel_name,
-            vessel_type,
-            timestamp,
-            session_id,
-            h3_res7,
-            h3_res8,
-            time_bucket,
-            sog,
-            explode(h3_kring(h3_res8, 1)) as neighbor_cell
-          FROM vessel_positions
+            vp.*,
+            COALESCE(chs.vessel_count - 1, 0) as vessels_in_same_cell,
+            COALESCE(chs.vessel_type_count, 0) as vessel_types_in_same_cell
+          FROM vessel_positions vp
+          LEFT JOIN {self.cell_hourly_stats_table} chs
+            ON vp.h3_res8 = chs.h3_res8
+            AND vp.time_bucket = chs.time_bucket
+            AND vp.date_partition = chs.date_partition
         ),
-        neighborhood_counts AS (
+        neighbor_stats AS (
+          -- Aggregate stats from neighbor cells (kring=1)
           SELECT 
-            v1.mmsi,
-            v1.timestamp,
-            v1.h3_res8,
-            v1.time_bucket,
+            vwcs.mmsi,
+            vwcs.timestamp,
+            vwcs.h3_res8,
+            vwcs.date_partition,
+            vwcs.vessels_in_same_cell,
             
-            COUNT(DISTINCT CASE 
-              WHEN v2.h3_res8 = v1.h3_res8 
-                AND v2.mmsi != v1.mmsi 
-                AND v2.time_bucket = v1.time_bucket
-              THEN v2.mmsi 
-            END) as vessels_in_same_cell,
+            -- Sum vessel counts from all neighbor cells (including own cell)
+            SUM(COALESCE(chs.vessel_count, 0)) as vessels_in_kring1,
+            SUM(COALESCE(chs.vessel_type_count, 0)) as vessel_types_nearby
             
-            COUNT(DISTINCT CASE 
-              WHEN v2.neighbor_cell = v1.h3_res8
-                AND v2.mmsi != v1.mmsi
-                AND v2.time_bucket = v1.time_bucket
-              THEN v2.mmsi 
-            END) as vessels_in_kring1,
-            
-            COUNT(DISTINCT CASE 
-              WHEN v2.neighbor_cell = v1.h3_res8
-                AND v2.mmsi != v1.mmsi
-                AND v2.time_bucket = v1.time_bucket
-              THEN v2.vessel_type 
-            END) as vessel_types_nearby
-            
-          FROM vessel_with_neighbors v1
-          LEFT JOIN vessel_with_neighbors v2
-            ON v1.time_bucket = v2.time_bucket
-          GROUP BY v1.mmsi, v1.timestamp, v1.h3_res8, v1.time_bucket
+          FROM vessel_with_same_cell_stats vwcs
+          CROSS JOIN LATERAL explode(h3_kring(vwcs.h3_res8, 1)) as (neighbor_cell)
+          LEFT JOIN {self.cell_hourly_stats_table} chs
+            ON neighbor_cell = chs.h3_res8
+            AND vwcs.time_bucket = chs.time_bucket
+            AND vwcs.date_partition = chs.date_partition
+          GROUP BY 
+            vwcs.mmsi, vwcs.timestamp, vwcs.h3_res8, 
+            vwcs.date_partition, vwcs.vessels_in_same_cell
         )
         SELECT 
           vp.mmsi,
           vp.vessel_name,
           vp.timestamp,
           vp.h3_res8,
+          vp.date_partition,
           
-          COALESCE(nc.vessels_in_same_cell, 0) as vessels_in_same_cell,
-          COALESCE(nc.vessels_in_kring1, 0) as vessels_in_kring1,
-          COALESCE(nc.vessel_types_nearby, 0) as vessel_types_nearby,
+          ns.vessels_in_same_cell,
+          ns.vessels_in_kring1,
+          ns.vessel_types_nearby,
           
-          CASE WHEN COALESCE(nc.vessels_in_same_cell, 0) = 0 THEN 1 ELSE 0 END as is_isolated,
-          CASE WHEN COALESCE(nc.vessels_in_kring1, 0) = 0 THEN 1 ELSE 0 END as is_neighborhood_isolated,
+          CASE WHEN ns.vessels_in_same_cell = 0 THEN 1 ELSE 0 END as is_isolated,
+          CASE WHEN ns.vessels_in_kring1 = 0 THEN 1 ELSE 0 END as is_neighborhood_isolated,
           
           CASE 
-            WHEN COALESCE(nc.vessels_in_kring1, 0) > 0 
-            THEN CAST(COALESCE(nc.vessels_in_same_cell, 0) AS DOUBLE) / COALESCE(nc.vessels_in_kring1, 1)
+            WHEN ns.vessels_in_kring1 > 0 
+            THEN CAST(ns.vessels_in_same_cell AS DOUBLE) / ns.vessels_in_kring1
             ELSE 0 
           END as local_density_ratio
-        
+          
         FROM vessel_positions vp
-        LEFT JOIN neighborhood_counts nc
-          ON vp.mmsi = nc.mmsi 
-          AND vp.timestamp = nc.timestamp
-          AND vp.h3_res8 = nc.h3_res8
+        INNER JOIN neighbor_stats ns
+          ON vp.mmsi = ns.mmsi 
+          AND vp.timestamp = ns.timestamp
+          AND vp.h3_res8 = ns.h3_res8
         """
         
         self.spark.sql(query)
+        
+        # Add Z-ordering for query performance
+        print(f"Optimizing {self.full_table_name} with Z-ordering...")
+        self.spark.sql(f"""
+        OPTIMIZE {self.full_table_name}
+        ZORDER BY (mmsi, h3_res8, timestamp)
+        """)
         
         row_count = self.spark.table(self.full_table_name).count()
         print(f"Created {self.full_table_name}: {row_count:,} records")
@@ -864,6 +933,7 @@ class VesselAnomalyFeaturesOrchestrator:
         self.rolling_patterns_table = f"{catalog}.{schema}.vessel_rolling_patterns"
         self.h3_normal_patterns_table = f"{catalog}.{schema}.h3_normal_patterns"
         self.h3_cell_statistics_table = f"{catalog}.{schema}.h3_cell_statistics"
+        self.cell_hourly_stats_table = f"{catalog}.{schema}.cell_hourly_statistics"
         self.spatial_context_table = f"{catalog}.{schema}.vessel_spatial_context"
         self.ml_features_table = f"{catalog}.{schema}.vessel_ml_features"
     
@@ -923,16 +993,26 @@ class VesselAnomalyFeaturesOrchestrator:
         )
         h3_stats_creator.create()
         
-        # Step 5: Create spatial context
+        # Step 5: Create cell hourly statistics (for spatial context optimization)
+        cell_hourly_stats_creator = CellHourlyStatisticsCreator(
+            self.spark,
+            self.cell_hourly_stats_table,
+            self.behavioral_features_table,
+            self.config
+        )
+        cell_hourly_stats_creator.create()
+        
+        # Step 6: Create spatial context (using cell hourly statistics)
         spatial_creator = SpatialContextCreator(
             self.spark,
             self.spatial_context_table,
             self.behavioral_features_table,
+            self.cell_hourly_stats_table,
             self.config
         )
         spatial_creator.create()
         
-        # Step 6: Create ML features
+        # Step 7: Create ML features
         ml_creator = MLFeaturesCreator(
             self.spark,
             self.ml_features_table,
@@ -953,8 +1033,9 @@ class VesselAnomalyFeaturesOrchestrator:
         print(f"  2. {self.rolling_patterns_table}")
         print(f"  3. {self.h3_normal_patterns_table}")
         print(f"  4. {self.h3_cell_statistics_table}")
-        print(f"  5. {self.spatial_context_table}")
-        print(f"  6. {self.ml_features_table}")
+        print(f"  5. {self.cell_hourly_stats_table}")
+        print(f"  6. {self.spatial_context_table}")
+        print(f"  7. {self.ml_features_table}")
         print("="*70)
 
 
