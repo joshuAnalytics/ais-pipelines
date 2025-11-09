@@ -74,6 +74,19 @@ variables:
   anomaly_features_historical_baseline_days:
     description: "Days for historical baseline patterns"
     default: 5
+  
+  # Anomaly Detection Configuration
+  anomaly_detection_encoding_dim:
+    description: "Autoencoder bottleneck dimension"
+    default: 16
+  
+  anomaly_detection_epochs:
+    description: "Training epochs"
+    default: 50
+  
+  anomaly_detection_batch_size:
+    description: "Training batch size"
+    default: 256
 
 artifacts:
   # Build your project into a wheel using uv, so the exact env is defined by your pyproject/uv.lock.
@@ -165,6 +178,25 @@ resources:
               - "--historical-baseline-days"
               - "${var.anomaly_features_historical_baseline_days}"
           environment_key: default
+        
+        - task_key: detect_anomalies
+          depends_on:
+            - task_key: create_anomaly_features
+          python_wheel_task:
+            package_name: ais_pipelines
+            entry_point: anomaly-detection
+            parameters:
+              - "--catalog"
+              - "${var.catalog}"
+              - "--schema"
+              - "${var.schema}"
+              - "--encoding-dim"
+              - "${var.anomaly_detection_encoding_dim}"
+              - "--epochs"
+              - "${var.anomaly_detection_epochs}"
+              - "--batch-size"
+              - "${var.anomaly_detection_batch_size}"
+          environment_key: default
       
       environments:
         - environment_key: default
@@ -193,6 +225,33 @@ resources:
               - "${var.anomaly_features_session_gap_hours}"
               - "--historical-baseline-days"
               - "${var.anomaly_features_historical_baseline_days}"
+          environment_key: default
+      
+      environments:
+        - environment_key: default
+          spec:
+            client: "4"
+            dependencies:
+              - ./dist/*.whl
+    
+    ais_pipeline_anomaly_detection:
+      name: "[${bundle.target}] AIS Pipeline - Anomaly Detection Only"
+      tasks:
+        - task_key: detect_anomalies
+          python_wheel_task:
+            package_name: ais_pipelines
+            entry_point: anomaly-detection
+            parameters:
+              - "--catalog"
+              - "${var.catalog}"
+              - "--schema"
+              - "${var.schema}"
+              - "--encoding-dim"
+              - "${var.anomaly_detection_encoding_dim}"
+              - "--epochs"
+              - "${var.anomaly_detection_epochs}"
+              - "--batch-size"
+              - "${var.anomaly_detection_batch_size}"
           environment_key: default
       
       environments:
