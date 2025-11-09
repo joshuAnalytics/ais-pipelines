@@ -27,15 +27,6 @@ variables:
     description: "Volume where files are dripped to"
     default: landing
   
-  # Dripper Configuration
-  dripper_n_per_run:
-    description: "Number of files to release per run"
-    default: 1
-  
-  dripper_delete_source:
-    description: "Whether to delete source files after copying"
-    default: false
-  
   # Decompressor Configuration
   decompressor_limit:
     description: "Number of files to decompress per run (0 = all files)"
@@ -44,19 +35,6 @@ variables:
   decompressor_delete_compressed:
     description: "Whether to delete compressed files after decompressing"
     default: false
-  
-  # Auto Loader Configuration
-  autoloader_schema_location:
-    description: "Relative path within landing volume for schemas"
-    default: _schemas/events
-  
-  autoloader_checkpoint_location:
-    description: "Relative path within landing volume for checkpoints"
-    default: _checkpoints/events
-  
-  autoloader_target_table:
-    description: "Target Delta table name"
-    default: "${var.catalog}.events_raw"
   
   # Download Configuration
   download_target_volume:
