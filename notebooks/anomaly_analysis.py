@@ -487,7 +487,8 @@ for _, row in top_anomalies.iterrows():
 
 # Detailed inspection of a specific anomaly
 if len(top_anomalies) > 0:
-    sample_mmsi = top_anomalies.iloc[0]['mmsi']
+    # Convert pandas/numpy types to native Python types for PySpark compatibility
+    sample_mmsi = int(top_anomalies.iloc[0]['mmsi'])
     sample_time = top_anomalies.iloc[0]['timestamp']
     
     # Get context around the anomaly
