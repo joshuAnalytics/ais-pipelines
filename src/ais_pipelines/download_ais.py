@@ -116,14 +116,14 @@ class AISDownloader:
     """Orchestrates the AIS data download process."""
 
     def __init__(
-        self, catalog: str, schema: str, volume: str, year: int, limit: int = None
+        self, catalog: str, schema: str, volume: str, start_date: str
     ) -> None:
         self.spark = SparkSession.builder.getOrCreate()
         self.unity = UnityUtilities(self.spark, catalog, schema, volume)
         self.scraper = WebScraper("https://coast.noaa.gov/htdata/CMSP/AISDataHandler")
         self.downloader = FileDownloader(self.spark, self.unity.volume_path)
-        self.year = year
-        self.limit = limit
+        # Extract year from start_date (format: YYYY-MM-DD)
+        self.year = int(start_date.split("-")[0])
 
     def run(self) -> None:
         """Execute the full download workflow."""
@@ -154,10 +154,9 @@ class AISDownloader:
 
     def _download_files(self, urls: List[str]) -> None:
         """Download all files in the list."""
-        urls_to_process = urls[: self.limit] if self.limit and self.limit > 0 else urls
-        total_files = len(urls_to_process)
+        total_files = len(urls)
 
-        for i, url in enumerate(urls_to_process, 1):
+        for i, url in enumerate(urls, 1):
             filename = url.split("/")[-1]
             print(f"Downloading {i}/{total_files}: {filename}")
             self.downloader.download_file(url, filename)
@@ -185,16 +184,9 @@ def main() -> None:
         help="Unity Catalog volume name",
     )
     parser.add_argument(
-        "--year",
-        type=int,
+        "--start-date",
         required=True,
-        help="Calendar year to download",
-    )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=None,
-        help="Maximum number of files to download (default: all files)",
+        help="Start date for download (YYYY-MM-DD). Year will be extracted from this date.",
     )
 
     args = parser.parse_args()
@@ -202,15 +194,13 @@ def main() -> None:
     catalog = args.catalog
     schema = args.schema
     volume = args.volume
-    year = args.year
-    limit = args.limit
+    start_date = args.start_date
 
     downloader = AISDownloader(
         catalog=catalog,
         schema=schema,
         volume=volume,
-        year=year,
-        limit=limit,
+        start_date=start_date,
     )
     downloader.run()
 

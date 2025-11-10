@@ -41,39 +41,36 @@ variables:
     description: "Volume where AIS files will be downloaded"
     default: full_history
   
-  download_year:
-    description: "Year to download from NOAA"
-    default: 2025
+  # Time Period 
+  download_start_date:
+    description: "Start date for data download and analysis (YYYY-MM-DD)"
+    default: "2024-01-01"
   
-  download_limit:
-    description: "Maximum number of files to download (0 = all files)"
-    default: 10
+  download_end_date:
+    description: "End date for data download and analysis (YYYY-MM-DD)"
+    default: "2024-01-31"
   
   # Create AIS Records Configuration
   create_ais_records_target_table:
     description: "Target table name for AIS records"
     default: ais_records
   
-  create_ais_records_limit:
-    description: "Maximum number of CSV files to process (0 = all files)"
-    default: 10
-  
   # Anomaly Features Configuration
-  anomaly_features_start_date:
-    description: "Start date for anomaly feature generation (YYYY-MM-DD)"
-    default: "2024-01-01"
-  
-  anomaly_features_end_date:
-    description: "End date for anomaly feature generation (YYYY-MM-DD)"
-    default: "2024-01-10"
-  
   anomaly_features_session_gap_hours:
     description: "Hours gap to define session boundaries"
     default: 24
   
-  anomaly_features_historical_baseline_days:
-    description: "Days for historical baseline patterns"
-    default: 5
+  anomaly_features_historical_baseline_pct:
+    description: "Percentage of date range to use for historical baseline (0-100)"
+    default: 60
+  
+  anomaly_features_spatial_context_pct:
+    description: "Percentage of date range to use for spatial context (0-100, from end of range)"
+    default: 40
+  
+  anomaly_features_ml_pct:
+    description: "Percentage of date range to use for ML features (0-100, from end of range)"
+    default: 30
   
   anomaly_features_vessel_type_filter:
     description: "Vessel type code to filter (e.g., 55 for Law Enforcement). Set to 0 for all types."
@@ -104,6 +101,7 @@ resources:
   jobs:
     ais_pipeline_full:
       name: "[${bundle.target}] AIS Pipeline - Full"
+      performance_target: PERFORMANCE_OPTIMIZED
       tasks:
         - task_key: download_ais
           python_wheel_task:
@@ -116,10 +114,8 @@ resources:
               - "${var.schema}"
               - "--volume"
               - "${var.download_target_volume}"
-              - "--year"
-              - "${var.download_year}"
-              - "--limit"
-              - "${var.download_limit}"
+              - "--start-date"
+              - "${var.download_start_date}"
           environment_key: default
         
         - task_key: decompress_files
@@ -158,8 +154,6 @@ resources:
               - "${var.landing_volume}"
               - "--target-table"
               - "${var.create_ais_records_target_table}"
-              - "--limit"
-              - "${var.create_ais_records_limit}"
           environment_key: default
         
         - task_key: create_anomaly_features
@@ -174,13 +168,17 @@ resources:
               - "--schema"
               - "${var.schema}"
               - "--start-date"
-              - "${var.anomaly_features_start_date}"
+              - "${var.download_start_date}"
               - "--end-date"
-              - "${var.anomaly_features_end_date}"
+              - "${var.download_end_date}"
               - "--session-gap-hours"
               - "${var.anomaly_features_session_gap_hours}"
-              - "--historical-baseline-days"
-              - "${var.anomaly_features_historical_baseline_days}"
+              - "--historical-baseline-pct"
+              - "${var.anomaly_features_historical_baseline_pct}"
+              - "--spatial-context-pct"
+              - "${var.anomaly_features_spatial_context_pct}"
+              - "--ml-pct"
+              - "${var.anomaly_features_ml_pct}"
               - "--vessel-type-filter"
               - "${var.anomaly_features_vessel_type_filter}"
           environment_key: default
@@ -213,6 +211,7 @@ resources:
     
     ais_pipeline_features:
       name: "[${bundle.target}] AIS Pipeline - Features Only"
+      performance_target: PERFORMANCE_OPTIMIZED
       tasks:
         - task_key: create_anomaly_features
           python_wheel_task:
@@ -224,13 +223,17 @@ resources:
               - "--schema"
               - "${var.schema}"
               - "--start-date"
-              - "${var.anomaly_features_start_date}"
+              - "${var.download_start_date}"
               - "--end-date"
-              - "${var.anomaly_features_end_date}"
+              - "${var.download_end_date}"
               - "--session-gap-hours"
               - "${var.anomaly_features_session_gap_hours}"
-              - "--historical-baseline-days"
-              - "${var.anomaly_features_historical_baseline_days}"
+              - "--historical-baseline-pct"
+              - "${var.anomaly_features_historical_baseline_pct}"
+              - "--spatial-context-pct"
+              - "${var.anomaly_features_spatial_context_pct}"
+              - "--ml-pct"
+              - "${var.anomaly_features_ml_pct}"
               - "--vessel-type-filter"
               - "${var.anomaly_features_vessel_type_filter}"
           environment_key: default
@@ -244,6 +247,7 @@ resources:
     
     ais_pipeline_anomaly_detection:
       name: "[${bundle.target}] AIS Pipeline - Anomaly Detection Only"
+      performance_target: PERFORMANCE_OPTIMIZED
       tasks:
         - task_key: detect_anomalies
           python_wheel_task:

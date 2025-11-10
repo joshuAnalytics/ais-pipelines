@@ -13,15 +13,13 @@ from pyspark.sql.functions import to_timestamp, col
 class CsvReader:
     """Handles reading CSV files from volume."""
 
-    def __init__(self, spark: SparkSession, volume_path: str, limit: int = 0) -> None:
+    def __init__(self, spark: SparkSession, volume_path: str) -> None:
         self.spark = spark
         self.volume_path = volume_path
-        self.limit = limit
 
     def read_all_csvs(self) -> DataFrame:
-        """Read CSV files from the volume using glob pattern, optionally limiting the number of files."""
+        """Read all CSV files from the volume using glob pattern."""
         import glob
-        import os
         
         csv_pattern = f"{self.volume_path}/*.csv"
         
@@ -29,17 +27,12 @@ class CsvReader:
         csv_files = sorted(glob.glob(csv_pattern))
         total_files = len(csv_files)
         
-        # Apply limit if specified
-        if self.limit > 0 and self.limit < total_files:
-            csv_files = csv_files[:self.limit]
-            print(f"Reading {len(csv_files)} of {total_files} CSV files (limit={self.limit})")
-        else:
-            print(f"Reading all {total_files} CSV files")
+        print(f"Reading all {total_files} CSV files")
         
         if not csv_files:
             raise ValueError(f"No CSV files found in {self.volume_path}")
         
-        # Read the selected files
+        # Read all files
         df = (
             self.spark.read
             .option("header", "true")
@@ -191,20 +184,18 @@ class AisRecordsOrchestrator:
         catalog: str,
         schema: str,
         landing_volume: str,
-        target_table: str = "ais_records",
-        limit: int = 0
+        target_table: str = "ais_records"
     ) -> None:
         self.spark = SparkSession.builder.getOrCreate()
         self.catalog = catalog
         self.schema = schema
         self.landing_volume = landing_volume
         self.target_table = target_table
-        self.limit = limit
         
         self.volume_path = f"/Volumes/{catalog}/{schema}/{landing_volume}"
         self.full_table_name = f"{catalog}.{schema}.{target_table}"
         
-        self.reader = CsvReader(self.spark, self.volume_path, limit)
+        self.reader = CsvReader(self.spark, self.volume_path)
         self.table_creator = SpatialTableCreator(self.spark, self.full_table_name)
         self.validator = DataQualityValidator(self.spark, self.full_table_name)
 
@@ -257,12 +248,6 @@ def main() -> None:
         default="ais_records",
         help="Target table name (default: ais_records)",
     )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=0,
-        help="Maximum number of CSV files to process (0 = all files)",
-    )
 
     args = parser.parse_args()
 
@@ -271,7 +256,6 @@ def main() -> None:
         schema=args.schema,
         landing_volume=args.landing_volume,
         target_table=args.target_table,
-        limit=args.limit,
     )
     orchestrator.run()
 

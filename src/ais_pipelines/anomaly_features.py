@@ -19,10 +19,23 @@ class AnomalyFeaturesConfig:
     session_gap_hours: int = 24
     min_obs_6h: int = 3
     min_obs_24h: int = 10
-    historical_baseline_days: int = 30
-    spatial_context_days: int = 7
-    ml_features_days: int = 7
+    historical_baseline_pct: int = 60
+    spatial_context_pct: int = 40
+    ml_pct: int = 30
     vessel_type_filter: int = 0
+    
+    def __post_init__(self) -> None:
+        """Calculate actual day counts from percentages based on date range."""
+        from datetime import datetime
+        
+        start = datetime.strptime(self.start_date, '%Y-%m-%d')
+        end = datetime.strptime(self.end_date, '%Y-%m-%d')
+        total_days = (end - start).days + 1
+        
+        # Calculate days from percentages
+        self.historical_baseline_days = max(1, int(total_days * self.historical_baseline_pct / 100))
+        self.spatial_context_days = max(1, int(total_days * self.spatial_context_pct / 100))
+        self.ml_features_days = max(1, int(total_days * self.ml_pct / 100))
 
 
 class BehavioralFeaturesCreator:
@@ -589,7 +602,6 @@ class CellHourlyStatisticsCreator:
         FROM {self.behavioral_features_table}
         WHERE timestamp >= '{self.spatial_start}'
           AND timestamp <= '{self.config.end_date}'
-          AND is_session_start = 0
         GROUP BY h3_res8, h3_res7, date_trunc('hour', timestamp), date(timestamp)
         """
         
@@ -651,7 +663,6 @@ class SpatialContextCreator:
           FROM {self.behavioral_features_table}
           WHERE timestamp >= '{self.spatial_start}'
             AND timestamp <= '{self.config.end_date}'
-            AND is_session_start = 0
         ),
         vessel_with_same_cell_stats AS (
           -- Join with own cell statistics
@@ -918,9 +929,9 @@ class VesselAnomalyFeaturesOrchestrator:
         session_gap_hours: int = 24,
         min_obs_6h: int = 3,
         min_obs_24h: int = 10,
-        historical_baseline_days: int = 30,
-        spatial_context_days: int = 7,
-        ml_features_days: int = 7,
+        historical_baseline_pct: int = 60,
+        spatial_context_pct: int = 40,
+        ml_pct: int = 30,
         vessel_type_filter: int = 0
     ) -> None:
         self.spark = SparkSession.builder.getOrCreate()
@@ -933,9 +944,9 @@ class VesselAnomalyFeaturesOrchestrator:
             session_gap_hours=session_gap_hours,
             min_obs_6h=min_obs_6h,
             min_obs_24h=min_obs_24h,
-            historical_baseline_days=historical_baseline_days,
-            spatial_context_days=spatial_context_days,
-            ml_features_days=ml_features_days,
+            historical_baseline_pct=historical_baseline_pct,
+            spatial_context_pct=spatial_context_pct,
+            ml_pct=ml_pct,
             vessel_type_filter=vessel_type_filter
         )
         
@@ -1099,22 +1110,22 @@ def main() -> None:
         help="Minimum observations for 24h rolling statistics (default: 10)",
     )
     parser.add_argument(
-        "--historical-baseline-days",
+        "--historical-baseline-pct",
+        type=int,
+        default=60,
+        help="Percentage of date range for historical baseline (default: 60)",
+    )
+    parser.add_argument(
+        "--spatial-context-pct",
+        type=int,
+        default=40,
+        help="Percentage of date range for spatial context (default: 40)",
+    )
+    parser.add_argument(
+        "--ml-pct",
         type=int,
         default=30,
-        help="Days for historical baseline patterns (default: 30)",
-    )
-    parser.add_argument(
-        "--spatial-context-days",
-        type=int,
-        default=7,
-        help="Days for spatial context window (default: 7)",
-    )
-    parser.add_argument(
-        "--ml-features-days",
-        type=int,
-        default=7,
-        help="Days for ML features window (default: 7)",
+        help="Percentage of date range for ML features (default: 30)",
     )
     parser.add_argument(
         "--vessel-type-filter",
@@ -1135,9 +1146,9 @@ def main() -> None:
         session_gap_hours=args.session_gap_hours,
         min_obs_6h=args.min_obs_6h,
         min_obs_24h=args.min_obs_24h,
-        historical_baseline_days=args.historical_baseline_days,
-        spatial_context_days=args.spatial_context_days,
-        ml_features_days=args.ml_features_days,
+        historical_baseline_pct=args.historical_baseline_pct,
+        spatial_context_pct=args.spatial_context_pct,
+        ml_pct=args.ml_pct,
         vessel_type_filter=args.vessel_type_filter,
     )
     orchestrator.run()
