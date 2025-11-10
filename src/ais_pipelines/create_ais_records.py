@@ -5,7 +5,7 @@ with spatial geometry columns and H3 indices at multiple resolutions.
 """
 
 import argparse
-from typing import List
+from typing import Optional
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import to_timestamp, col
 
@@ -13,26 +13,67 @@ from pyspark.sql.functions import to_timestamp, col
 class CsvReader:
     """Handles reading CSV files from volume."""
 
-    def __init__(self, spark: SparkSession, volume_path: str) -> None:
+    def __init__(
+        self, 
+        spark: SparkSession, 
+        volume_path: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
+    ) -> None:
         self.spark = spark
         self.volume_path = volume_path
+        self.start_date = start_date
+        self.end_date = end_date
+
+    def _parse_date_from_filename(self, filepath: str) -> Optional[str]:
+        """Extract date from filename like AIS_2024_01_01.csv -> 2024-01-01"""
+        import re
+        
+        pattern = r'AIS_(\d{4})_(\d{2})_(\d{2})\.csv'
+        match = re.search(pattern, filepath)
+        if match:
+            year, month, day = match.groups()
+            return f"{year}-{month}-{day}"
+        return None
 
     def read_all_csvs(self) -> DataFrame:
-        """Read all CSV files from the volume using glob pattern."""
+        """Read CSV files from the volume, optionally filtered by date range."""
         import glob
+        from datetime import datetime
         
         csv_pattern = f"{self.volume_path}/*.csv"
+        all_csv_files = sorted(glob.glob(csv_pattern))
         
-        # Get list of CSV files
-        csv_files = sorted(glob.glob(csv_pattern))
-        total_files = len(csv_files)
-        
-        print(f"Reading all {total_files} CSV files")
+        # Filter by date range if provided
+        if self.start_date or self.end_date:
+            start_dt = datetime.strptime(self.start_date, '%Y-%m-%d') if self.start_date else None
+            end_dt = datetime.strptime(self.end_date, '%Y-%m-%d') if self.end_date else None
+            
+            filtered_files = []
+            for filepath in all_csv_files:
+                file_date_str = self._parse_date_from_filename(filepath)
+                if file_date_str:
+                    file_dt = datetime.strptime(file_date_str, '%Y-%m-%d')
+                    
+                    # Check if file date is within range
+                    if start_dt and file_dt < start_dt:
+                        continue
+                    if end_dt and file_dt > end_dt:
+                        continue
+                    
+                    filtered_files.append(filepath)
+            
+            csv_files = filtered_files
+            print(f"Filtered to {len(csv_files)} CSV files (from {len(all_csv_files)} total)")
+            print(f"Date range: {self.start_date} to {self.end_date}")
+        else:
+            csv_files = all_csv_files
+            print(f"Reading all {len(csv_files)} CSV files (no date filter)")
         
         if not csv_files:
-            raise ValueError(f"No CSV files found in {self.volume_path}")
+            raise ValueError(f"No CSV files found in {self.volume_path} for the specified date range")
         
-        # Read all files
+        # Read files
         df = (
             self.spark.read
             .option("header", "true")
@@ -184,18 +225,27 @@ class AisRecordsOrchestrator:
         catalog: str,
         schema: str,
         landing_volume: str,
-        target_table: str = "ais_records"
+        target_table: str = "ais_records",
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
     ) -> None:
         self.spark = SparkSession.builder.getOrCreate()
         self.catalog = catalog
         self.schema = schema
         self.landing_volume = landing_volume
         self.target_table = target_table
+        self.start_date = start_date
+        self.end_date = end_date
         
         self.volume_path = f"/Volumes/{catalog}/{schema}/{landing_volume}"
         self.full_table_name = f"{catalog}.{schema}.{target_table}"
         
-        self.reader = CsvReader(self.spark, self.volume_path)
+        self.reader = CsvReader(
+            self.spark, 
+            self.volume_path,
+            start_date=start_date,
+            end_date=end_date
+        )
         self.table_creator = SpatialTableCreator(self.spark, self.full_table_name)
         self.validator = DataQualityValidator(self.spark, self.full_table_name)
 
@@ -226,7 +276,7 @@ class AisRecordsOrchestrator:
 def main() -> None:
     """Main entry point for the create_ais_records script."""
     parser = argparse.ArgumentParser(
-        description="Create AIS records table with spatial columns from all CSVs in volume"
+        description="Create AIS records table with spatial columns from CSVs in volume"
     )
     parser.add_argument(
         "--catalog",
@@ -248,6 +298,14 @@ def main() -> None:
         default="ais_records",
         help="Target table name (default: ais_records)",
     )
+    parser.add_argument(
+        "--start-date",
+        help="Start date filter (YYYY-MM-DD, optional)",
+    )
+    parser.add_argument(
+        "--end-date",
+        help="End date filter (YYYY-MM-DD, optional)",
+    )
 
     args = parser.parse_args()
 
@@ -256,6 +314,8 @@ def main() -> None:
         schema=args.schema,
         landing_volume=args.landing_volume,
         target_table=args.target_table,
+        start_date=args.start_date,
+        end_date=args.end_date,
     )
     orchestrator.run()
 

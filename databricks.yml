@@ -11,16 +11,14 @@ sync:
 variables:
   # Unity Catalog Configuration
   catalog:
-    description: "Unity Catalog catalog name"
     default: ais
   
   schema:
-    description: "Unity Catalog schema name"
     default: ais_assets
   
   # Volume Configuration
   source_volume:
-    description: "Volume containing full history files"
+    description: "Volume containing compressed files"
     default: full_history
   
   landing_volume:
@@ -28,10 +26,6 @@ variables:
     default: landing
   
   # Decompressor Configuration
-  decompressor_limit:
-    description: "Number of files to decompress per run (0 = all files)"
-    default: 0
-  
   decompressor_delete_compressed:
     description: "Whether to delete compressed files after decompressing"
     default: false
@@ -48,7 +42,7 @@ variables:
   
   download_end_date:
     description: "End date for data download and analysis (YYYY-MM-DD)"
-    default: "2024-01-31"
+    default: "2024-01-02"
   
   # Create AIS Records Configuration
   create_ais_records_target_table:
@@ -133,8 +127,6 @@ resources:
               - "${var.source_volume}"
               - "--landing-volume"
               - "${var.landing_volume}"
-              - "--limit"
-              - "${var.decompressor_limit}"
               - "--delete-compressed"
               - "${var.decompressor_delete_compressed}"
           environment_key: default
@@ -154,6 +146,10 @@ resources:
               - "${var.landing_volume}"
               - "--target-table"
               - "${var.create_ais_records_target_table}"
+              - "--start-date"
+              - "${var.download_start_date}"
+              - "--end-date"
+              - "${var.download_end_date}"
           environment_key: default
         
         - task_key: create_anomaly_features
