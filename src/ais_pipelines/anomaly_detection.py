@@ -342,13 +342,13 @@ class AnomalyDetector:
         
         print(f"\nResults saved to {table_name}")
     
-    def save_model(self, model_dir: str = "/dbfs/models") -> None:
-        """Save model locally and register to Unity Catalog."""
-        # Save locally with .keras extension
-        model_path = f"{model_dir}/ais_autoencoder_model.keras"
-        Path(model_dir).mkdir(parents=True, exist_ok=True)
-        self.model.save(model_path)
-        print(f"Model saved locally to {model_path}")
+    def save_model(self) -> None:
+        """Register model to Unity Catalog via MLflow."""
+        model_name = f"{self.config.catalog}.{self.config.schema}.ais_autoencoder_model"
+        experiment_name = f"{self.config.catalog}.{self.config.schema}.ais_anomaly_experiments"
+        
+        # Set MLflow experiment (creates if doesn't exist)
+        mlflow.set_experiment(experiment_name)
         
         # Prepare metadata
         metadata = {
@@ -356,16 +356,9 @@ class AnomalyDetector:
             "anomaly_threshold_percentile": self.config.anomaly_threshold_percentile,
             "encoding_dim": self.config.encoding_dim,
             "feature_columns": self.config.feature_columns,
-            "tensorflow_version": tf.__version__
+            "tensorflow_version": tf.__version__,
+            "n_features": len(self.config.feature_columns)
         }
-        
-        metadata_path = f"{model_dir}/ais_autoencoder_metadata.json"
-        with open(metadata_path, "w") as f:
-            json.dump(metadata, f, indent=2)
-        print(f"Metadata saved to {metadata_path}")
-        
-        # Register model to Unity Catalog
-        model_name = f"{self.config.catalog}.{self.config.schema}.ais_autoencoder_model"
         
         with mlflow.start_run(run_name="ais_anomaly_detection") as run:
             # Log model parameters
@@ -379,15 +372,20 @@ class AnomalyDetector:
             mlflow.log_metric("anomaly_threshold", float(self.anomaly_threshold))
             mlflow.log_metric("n_features", len(self.config.feature_columns))
             
-            # Log model to MLflow
+            # Set key metadata as tags for easy discovery
+            mlflow.set_tag("model_type", "autoencoder")
+            mlflow.set_tag("task", "anomaly_detection")
+            mlflow.set_tag("framework", "tensorflow/keras")
+            
+            # Log metadata as dict artifact (no file needed)
+            mlflow.log_dict(metadata, "metadata.json")
+            
+            # Log model to Unity Catalog
             mlflow.keras.log_model(
                 self.model.autoencoder,
                 artifact_path="model",
                 registered_model_name=model_name
             )
-            
-            # Log metadata as artifact
-            mlflow.log_artifact(metadata_path, artifact_path="metadata")
             
             print(f"Model registered to Unity Catalog as {model_name}")
             print(f"MLflow run ID: {run.info.run_id}")
