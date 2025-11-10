@@ -75,6 +75,10 @@ variables:
     description: "Days for historical baseline patterns"
     default: 5
   
+  anomaly_features_vessel_type_filter:
+    description: "Vessel type code to filter (e.g., 55 for Law Enforcement). Set to 0 for all types."
+    default: 55
+  
   # Anomaly Detection Configuration
   anomaly_detection_encoding_dim:
     description: "Autoencoder bottleneck dimension"
@@ -177,6 +181,8 @@ resources:
               - "${var.anomaly_features_session_gap_hours}"
               - "--historical-baseline-days"
               - "${var.anomaly_features_historical_baseline_days}"
+              - "--vessel-type-filter"
+              - "${var.anomaly_features_vessel_type_filter}"
           environment_key: default
         
         - task_key: detect_anomalies
@@ -225,6 +231,8 @@ resources:
               - "${var.anomaly_features_session_gap_hours}"
               - "--historical-baseline-days"
               - "${var.anomaly_features_historical_baseline_days}"
+              - "--vessel-type-filter"
+              - "${var.anomaly_features_vessel_type_filter}"
           environment_key: default
       
       environments:

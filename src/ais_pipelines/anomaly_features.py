@@ -22,6 +22,7 @@ class AnomalyFeaturesConfig:
     historical_baseline_days: int = 30
     spatial_context_days: int = 7
     ml_features_days: int = 7
+    vessel_type_filter: int = 0
 
 
 class BehavioralFeaturesCreator:
@@ -44,6 +45,14 @@ class BehavioralFeaturesCreator:
         print(f"\nCreating table: {self.full_table_name}")
         print(f"Date range: {self.config.start_date} to {self.config.end_date}")
         print(f"Session gap threshold: {self.config.session_gap_hours} hours")
+        
+        # Build vessel type filter clause
+        vessel_type_filter_clause = ""
+        if self.config.vessel_type_filter and self.config.vessel_type_filter > 0:
+            vessel_type_filter_clause = f"AND vessel_type = {self.config.vessel_type_filter}"
+            print(f"Filtering for vessel type: {self.config.vessel_type_filter}")
+        else:
+            print("Processing all vessel types")
         
         query = f"""
         CREATE OR REPLACE TABLE {self.full_table_name} AS
@@ -74,6 +83,7 @@ class BehavioralFeaturesCreator:
           FROM {self.ais_records_table}
           WHERE timestamp >= '{self.config.start_date}'
             AND timestamp <= '{self.config.end_date}'
+            {vessel_type_filter_clause}
           WINDOW w AS (PARTITION BY mmsi ORDER BY timestamp)
         ),
         vessel_sessions_with_id AS (
@@ -910,7 +920,8 @@ class VesselAnomalyFeaturesOrchestrator:
         min_obs_24h: int = 10,
         historical_baseline_days: int = 30,
         spatial_context_days: int = 7,
-        ml_features_days: int = 7
+        ml_features_days: int = 7,
+        vessel_type_filter: int = 0
     ) -> None:
         self.spark = SparkSession.builder.getOrCreate()
         self.catalog = catalog
@@ -924,7 +935,8 @@ class VesselAnomalyFeaturesOrchestrator:
             min_obs_24h=min_obs_24h,
             historical_baseline_days=historical_baseline_days,
             spatial_context_days=spatial_context_days,
-            ml_features_days=ml_features_days
+            ml_features_days=ml_features_days,
+            vessel_type_filter=vessel_type_filter
         )
         
         # Table names
@@ -946,6 +958,10 @@ class VesselAnomalyFeaturesOrchestrator:
         print(f"Schema: {self.schema}")
         print(f"Date range: {self.config.start_date} to {self.config.end_date}")
         print(f"Session gap threshold: {self.config.session_gap_hours} hours")
+        if self.config.vessel_type_filter and self.config.vessel_type_filter > 0:
+            print(f"Vessel type filter: {self.config.vessel_type_filter}")
+        else:
+            print("Vessel type filter: All types")
         print("="*70)
         
         # Ensure schema exists
@@ -1100,6 +1116,14 @@ def main() -> None:
         default=7,
         help="Days for ML features window (default: 7)",
     )
+    parser.add_argument(
+        "--vessel-type-filter",
+        type=int,
+        default=0,
+        help="Vessel type code to filter (e.g., 55 for Law Enforcement, 52 for Tug, 70 for Cargo). "
+             "Set to 0 for all types. See ais_pipelines.vessel_types.VESSEL_TYPES for complete mapping. "
+             "(default: 0)",
+    )
 
     args = parser.parse_args()
 
@@ -1114,6 +1138,7 @@ def main() -> None:
         historical_baseline_days=args.historical_baseline_days,
         spatial_context_days=args.spatial_context_days,
         ml_features_days=args.ml_features_days,
+        vessel_type_filter=args.vessel_type_filter,
     )
     orchestrator.run()
 
