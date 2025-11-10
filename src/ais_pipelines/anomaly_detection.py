@@ -342,10 +342,13 @@ class AnomalyDetector:
         
         print(f"\nResults saved to {table_name}")
     
-    def save_model(self) -> None:
+    def save_model(self, X_sample: np.ndarray) -> None:
         """Register model to Unity Catalog via MLflow."""
         model_name = f"{self.config.catalog}.{self.config.schema}.ais_autoencoder_model"
-        experiment_name = f"{self.config.catalog}.{self.config.schema}.ais_anomaly_experiments"
+        
+        # Get current username for experiment path
+        username = self.spark.sql("SELECT current_user()").collect()[0][0]
+        experiment_name = f"/Users/{username}/ais_anomaly_detection"
         
         # Set MLflow experiment (creates if doesn't exist)
         mlflow.set_experiment(experiment_name)
@@ -359,6 +362,11 @@ class AnomalyDetector:
             "tensorflow_version": tf.__version__,
             "n_features": len(self.config.feature_columns)
         }
+        
+        # Generate model signature
+        print("Generating model signature...")
+        sample_output = self.model.autoencoder.predict(X_sample)
+        signature = mlflow.models.infer_signature(X_sample, sample_output)
         
         with mlflow.start_run(run_name="ais_anomaly_detection") as run:
             # Log model parameters
@@ -380,11 +388,12 @@ class AnomalyDetector:
             # Log metadata as dict artifact (no file needed)
             mlflow.log_dict(metadata, "metadata.json")
             
-            # Log model to Unity Catalog
+            # Log model to Unity Catalog with signature
             mlflow.keras.log_model(
                 self.model.autoencoder,
                 artifact_path="model",
-                registered_model_name=model_name
+                registered_model_name=model_name,
+                signature=signature
             )
             
             print(f"Model registered to Unity Catalog as {model_name}")
@@ -420,8 +429,10 @@ class AnomalyDetector:
         # Save results
         self.save_results(pdf)
         
-        # Save model
-        self.save_model()
+        # Save model with signature (use sample of training data)
+        sample_size = min(100, len(X_train))
+        X_sample = X_train[:sample_size]
+        self.save_model(X_sample)
         
         # Generate summary
         summary = {
