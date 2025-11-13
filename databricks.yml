@@ -38,11 +38,11 @@ variables:
   # Time Period 
   download_start_date:
     description: "Start date for data download and analysis (YYYY-MM-DD)"
-    default: "2024-01-01"
+    default: "2024-03-01"
   
   download_end_date:
     description: "End date for data download and analysis (YYYY-MM-DD)"
-    default: "2024-01-02"
+    default: "2024-04-01"
   
   # Create AIS Records Configuration
   create_ais_records_target_table:

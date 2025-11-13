@@ -12,9 +12,8 @@
 # MAGIC 1. Overview Statistics
 # MAGIC 2. Anomaly Distribution Analysis
 # MAGIC 3. Spatial Analysis
-# MAGIC 4. Temporal Patterns
-# MAGIC 5. Feature Analysis
-# MAGIC 6. Sample Anomalies
+# MAGIC 4. Feature Analysis
+# MAGIC 5. Sample Anomalies
 
 # COMMAND ----------
 
@@ -24,7 +23,7 @@
 # COMMAND ----------
 
 # Install required packages
-%pip install folium
+%pip install folium -q
 
 # Note: Adjust the path above to match your Databricks Repos location
 # Or if the wheel is already installed in the cluster environment, you can skip this step
@@ -57,7 +56,7 @@ sys.path.insert(0, src_path)
 # Import vessel type mapping utilities from installed wheel
 from ais_pipelines.vessel_types import map_vessel_types_spark, map_vessel_types_pandas
 
-# Set style
+# Set visualization style - using default style for light backgrounds
 sns.set_style("whitegrid")
 plt.rcParams['figure.figsize'] = (12, 6)
 
@@ -302,100 +301,17 @@ plt.show()
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 5. Temporal Patterns
-
-# COMMAND ----------
-
-# Anomalies by hour of day
-hourly_anomalies = combined.groupBy("hour_of_day").agg(
-    F.count("*").alias("total_observations"),
-    F.sum(F.when(F.col("is_anomaly"), 1).otherwise(0)).alias("anomaly_count")
-).withColumn(
-    "anomaly_rate", (F.col("anomaly_count") / F.col("total_observations") * 100)
-).orderBy("hour_of_day").toPandas()
-
-fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
-
-# Count by hour
-ax1.bar(hourly_anomalies['hour_of_day'], hourly_anomalies['anomaly_count'], color='steelblue', alpha=0.7)
-ax1.set_title('Anomaly Count by Hour of Day', fontsize=14, fontweight='bold')
-ax1.set_xlabel('Hour of Day')
-ax1.set_ylabel('Anomaly Count')
-ax1.grid(axis='y', alpha=0.3)
-
-# Rate by hour
-ax2.plot(hourly_anomalies['hour_of_day'], hourly_anomalies['anomaly_rate'], 
-         marker='o', linewidth=2, markersize=8, color='coral')
-ax2.set_title('Anomaly Rate by Hour of Day', fontsize=14, fontweight='bold')
-ax2.set_xlabel('Hour of Day')
-ax2.set_ylabel('Anomaly Rate (%)')
-ax2.grid(alpha=0.3)
-
-plt.tight_layout()
-plt.show()
-
-# COMMAND ----------
-
-# Anomalies by day of week
-dow_anomalies = combined.groupBy("day_of_week").agg(
-    F.count("*").alias("total_observations"),
-    F.sum(F.when(F.col("is_anomaly"), 1).otherwise(0)).alias("anomaly_count")
-).withColumn(
-    "anomaly_rate", (F.col("anomaly_count") / F.col("total_observations") * 100)
-).orderBy("day_of_week").toPandas()
-
-# Map day numbers to names
-dow_names = {1: 'Sunday', 2: 'Monday', 3: 'Tuesday', 4: 'Wednesday', 
-             5: 'Thursday', 6: 'Friday', 7: 'Saturday'}
-dow_anomalies['day_name'] = dow_anomalies['day_of_week'].map(dow_names)
-
-fig, ax = plt.subplots(figsize=(12, 6))
-ax.bar(dow_anomalies['day_name'], dow_anomalies['anomaly_count'], color='mediumpurple', alpha=0.7)
-ax.set_title('Anomaly Count by Day of Week', fontsize=14, fontweight='bold')
-ax.set_xlabel('Day of Week')
-ax.set_ylabel('Anomaly Count')
-ax.tick_params(axis='x', rotation=45)
-ax.grid(axis='y', alpha=0.3)
-for i, v in enumerate(dow_anomalies['anomaly_count']):
-    ax.text(i, v + v*0.01, f'{int(v):,}', ha='center', va='bottom')
-plt.tight_layout()
-plt.show()
-
-# COMMAND ----------
-
-# Session analysis
-session_anomalies = combined.filter(F.col("is_anomaly")).groupBy(
-    "is_session_start", "is_session_mature"
-).agg(
-    F.count("*").alias("anomaly_count")
-).toPandas()
-
-session_anomalies['session_phase'] = session_anomalies.apply(
-    lambda x: 'Session Start' if x['is_session_start'] == 1 
-    else 'Mature Session' if x['is_session_mature'] == 1 
-    else 'Early Session', axis=1
-)
-
-print("\nANOMALIES BY SESSION PHASE")
-print(f"{'='*60}")
-print(session_anomalies[['session_phase', 'anomaly_count']])
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 6. Feature Analysis
+# MAGIC ## 4. Feature Analysis
 
 # COMMAND ----------
 
 # Correlations between features and anomaly scores
 feature_cols = [
     'sog', 'distance_moved_km', 'speed_change', 'course_change',
-    'hours_to_next_signal', 'speed_discrepancy_kmh',
-    'avg_speed_6h', 'stddev_speed_6h', 'erratic_score_6h',
-    'vessels_in_same_cell', 'is_isolated', 'is_unexpectedly_isolated'
+    'hours_to_next_signal', 'speed_discrepancy_kmh'
 ]
 
-# Sample for correlation analysis (to avoid memory issues)
+# Sample for correlation analysis
 correlation_sample = combined.filter(F.col("is_anomaly")).select(
     feature_cols + ['anomaly_score']
 ).fillna(0).sample(False, 0.1, seed=42).toPandas()
@@ -403,71 +319,18 @@ correlation_sample = combined.filter(F.col("is_anomaly")).select(
 if len(correlation_sample) > 0:
     correlations = correlation_sample.corr()['anomaly_score'].drop('anomaly_score').sort_values(ascending=False)
     
-    fig, ax = plt.subplots(figsize=(10, 8))
-    correlations.plot(kind='barh', ax=ax, color=['green' if x > 0 else 'red' for x in correlations])
+    fig, ax = plt.subplots(figsize=(10, 6))
+    correlations.plot(kind='barh', ax=ax, color=['darkgreen' if x > 0 else 'darkred' for x in correlations])
     ax.set_title('Feature Correlation with Anomaly Score', fontsize=14, fontweight='bold')
     ax.set_xlabel('Correlation Coefficient')
     ax.axvline(x=0, color='black', linestyle='--', linewidth=0.8)
-    plt.tight_layout()
-    plt.show()
-    
-    print("\nTOP FEATURES CORRELATED WITH ANOMALY SCORE")
-    print(f"{'='*60}")
-    print(correlations.head(10))
-
-# COMMAND ----------
-
-# Gap type analysis
-gap_anomalies = combined.filter(F.col("is_anomaly")).groupBy("gap_type").agg(
-    F.count("*").alias("anomaly_count"),
-    F.mean("anomaly_score").alias("avg_anomaly_score")
-).orderBy(F.desc("anomaly_count")).toPandas()
-
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
-
-# Count
-ax1.bar(gap_anomalies['gap_type'], gap_anomalies['anomaly_count'], color='steelblue', alpha=0.7)
-ax1.set_title('Anomalies by Gap Type', fontsize=14, fontweight='bold')
-ax1.set_xlabel('Gap Type')
-ax1.set_ylabel('Count')
-ax1.tick_params(axis='x', rotation=45)
-for i, v in enumerate(gap_anomalies['anomaly_count']):
-    ax1.text(i, v + v*0.01, f'{int(v):,}', ha='center', va='bottom')
-
-# Average score
-ax2.bar(gap_anomalies['gap_type'], gap_anomalies['avg_anomaly_score'], color='coral', alpha=0.7)
-ax2.set_title('Average Anomaly Score by Gap Type', fontsize=14, fontweight='bold')
-ax2.set_xlabel('Gap Type')
-ax2.set_ylabel('Average Anomaly Score')
-ax2.tick_params(axis='x', rotation=45)
-for i, v in enumerate(gap_anomalies['avg_anomaly_score']):
-    ax2.text(i, v + v*0.01, f'{v:.2f}', ha='center', va='bottom')
-
-plt.tight_layout()
-plt.show()
-
-# COMMAND ----------
-
-# Speed discrepancy analysis
-speed_analysis = combined.filter(
-    F.col("is_anomaly") & F.col("speed_discrepancy_kmh").isNotNull()
-).select("speed_discrepancy_kmh", "anomaly_score").sample(False, 0.1, seed=42).toPandas()
-
-if len(speed_analysis) > 0:
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.scatter(speed_analysis['speed_discrepancy_kmh'], speed_analysis['anomaly_score'], 
-               alpha=0.5, s=10, color='steelblue')
-    ax.set_title('Anomaly Score vs Speed Discrepancy', fontsize=14, fontweight='bold')
-    ax.set_xlabel('Speed Discrepancy (km/h)')
-    ax.set_ylabel('Anomaly Score')
-    ax.grid(alpha=0.3)
     plt.tight_layout()
     plt.show()
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 7. Sample Anomalies
+# MAGIC ## 5. Sample Anomalies
 
 # COMMAND ----------
 
@@ -558,17 +421,15 @@ if len(top_anomalies) > 0:
 # MAGIC %md
 # MAGIC ## Summary
 # MAGIC
-# MAGIC This notebook provides a comprehensive analysis of the anomaly detection results:
+# MAGIC This notebook provides analysis of the anomaly detection results:
 # MAGIC
 # MAGIC 1. **Overview** - Overall statistics and anomaly rates
-# MAGIC 2. **Distribution** - Severity breakdown and top anomalous vessels
-# MAGIC 3. **Spatial** - Geographic patterns and hotspots
-# MAGIC 4. **Temporal** - Time-based patterns (hourly, daily, sessions)
-# MAGIC 5. **Features** - Which features correlate with anomalies
-# MAGIC 6. **Samples** - Detailed inspection of specific anomalies
+# MAGIC 2. **Distribution** - Severity breakdown, top anomalous vessels, and vessel type analysis
+# MAGIC 3. **Spatial** - Geographic patterns, hotspots, and location type analysis
+# MAGIC 4. **Features** - Key features that correlate with anomalies
+# MAGIC 5. **Samples** - Detailed inspection of specific critical anomalies
 # MAGIC
 # MAGIC **Next Steps:**
-# MAGIC - Investigate specific high-scoring anomalies
-# MAGIC - Refine threshold based on business requirements
-# MAGIC - Create alerts for real-time monitoring
-# MAGIC - Develop vessel-specific baseline profiles
+# MAGIC - Review critical anomalies for operational action
+# MAGIC - Monitor vessel types with high anomaly rates
+# MAGIC - Investigate geographic hotspots
