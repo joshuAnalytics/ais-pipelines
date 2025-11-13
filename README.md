@@ -135,3 +135,18 @@ If switching between workspaces, clear the terraform cache:
 ```bash
 rm -rf .databricks
 ```
+
+## most common vessel types 
+
+vessel_type	vessel_type_name	record_count	percentage
+31	Towing	46815456	19.23
+37	Pleasure Craft	43971390	18.06
+52	Tug	40843849	16.77
+70	Cargo	17016164	6.99
+30	Fishing	16720233	6.87
+60	Passenger	15806840	6.49
+36	Sailing	15176329	6.23
+80	Tanker	8109606	3.33
+90	Other Type	4595142	1.89
+57	Spare - Local Vessel	4443110	1.82
+33	Dredging or underwater ops	2856348	1.17

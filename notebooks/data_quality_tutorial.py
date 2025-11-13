@@ -55,6 +55,34 @@ file_path = f"{volume_path}/{EXAMPLE_FILE}"
 # Read CSV into Spark DataFrame
 df = spark.read.option("header", "true").option("inferSchema", "true").csv(file_path)
 
+# Standardize column names to snake_case
+column_mapping = {
+    "BaseDateTime": "base_date_time",
+    "VesselName": "vessel_name",
+    "Draft": "draft",
+    "Heading": "heading",
+    "Length": "length",
+    "MMSI": "mmsi",
+    "Latitude": "latitude",
+    "Longitude": "longitude",
+    "SOG": "sog",
+    "COG": "cog",
+    "VesselType": "vessel_type",
+    "Status": "status",
+    "Width": "width",
+    "Draught": "draught",
+    "Destination": "destination",
+    "ETA": "eta",
+    "IMO": "imo",
+    "CallSign": "call_sign",
+    "Flag": "flag"
+}
+
+# Rename columns that exist in the dataframe
+for old_name, new_name in column_mapping.items():
+    if old_name in df.columns:
+        df = df.withColumnRenamed(old_name, new_name)
+
 # Show schema and sample data
 print("DataFrame Schema:")
 df.printSchema()
@@ -88,7 +116,7 @@ for col_name in df.columns:
 # COMMAND ----------
 
 # Check unique vessels (MMSI)
-unique_mmsi = df.select(countDistinct("MMSI")).collect()[0][0]
+unique_mmsi = df.select(countDistinct("mmsi")).collect()[0][0]
 print(f"Unique vessels (MMSI): {unique_mmsi:,}")
 
 # Show timestamp range

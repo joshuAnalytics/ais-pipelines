@@ -11,65 +11,77 @@ sync:
 variables:
   # Unity Catalog Configuration
   catalog:
-    description: "Unity Catalog catalog name"
     default: ais
   
   schema:
-    description: "Unity Catalog schema name"
     default: ais_assets
   
   # Volume Configuration
   source_volume:
-    description: "Volume containing full history files"
+    description: "Volume containing compressed files"
     default: full_history
   
   landing_volume:
     description: "Volume where files are dripped to"
     default: landing
   
-  # Dripper Configuration
-  dripper_n_per_run:
-    description: "Number of files to release per run"
-    default: 1
-  
-  dripper_delete_source:
-    description: "Whether to delete source files after copying"
-    default: false
-  
   # Decompressor Configuration
-  decompressor_limit:
-    description: "Number of files to decompress per run (0 = all files)"
-    default: 0
-  
   decompressor_delete_compressed:
     description: "Whether to delete compressed files after decompressing"
     default: false
-  
-  # Auto Loader Configuration
-  autoloader_schema_location:
-    description: "Relative path within landing volume for schemas"
-    default: _schemas/events
-  
-  autoloader_checkpoint_location:
-    description: "Relative path within landing volume for checkpoints"
-    default: _checkpoints/events
-  
-  autoloader_target_table:
-    description: "Target Delta table name"
-    default: "${var.catalog}.events_raw"
   
   # Download Configuration
   download_target_volume:
     description: "Volume where AIS files will be downloaded"
     default: full_history
   
-  download_year:
-    description: "Year to download from NOAA"
-    default: 2025
+  # Time Period 
+  download_start_date:
+    description: "Start date for data download and analysis (YYYY-MM-DD)"
+    default: "2024-03-01"
   
-  download_limit:
-    description: "Maximum number of files to download (0 = all files)"
-    default: 1
+  download_end_date:
+    description: "End date for data download and analysis (YYYY-MM-DD)"
+    default: "2024-04-01"
+  
+  # Create AIS Records Configuration
+  create_ais_records_target_table:
+    description: "Target table name for AIS records"
+    default: ais_records
+  
+  # Anomaly Features Configuration
+  anomaly_features_session_gap_hours:
+    description: "Hours gap to define session boundaries"
+    default: 24
+  
+  anomaly_features_historical_baseline_pct:
+    description: "Percentage of date range to use for historical baseline (0-100)"
+    default: 60
+  
+  anomaly_features_spatial_context_pct:
+    description: "Percentage of date range to use for spatial context (0-100, from end of range)"
+    default: 40
+  
+  anomaly_features_ml_pct:
+    description: "Percentage of date range to use for ML features (0-100, from end of range)"
+    default: 30
+  
+  anomaly_features_vessel_type_filter:
+    description: "Vessel type code to filter (e.g., 55 for Law Enforcement). Set to 0 for all types."
+    default: 70
+  
+  # Anomaly Detection Configuration
+  anomaly_detection_encoding_dim:
+    description: "Autoencoder bottleneck dimension"
+    default: 16
+  
+  anomaly_detection_epochs:
+    description: "Training epochs"
+    default: 50
+  
+  anomaly_detection_batch_size:
+    description: "Training batch size"
+    default: 256
 
 artifacts:
   # Build your project into a wheel using uv, so the exact env is defined by your pyproject/uv.lock.
@@ -81,8 +93,9 @@ artifacts:
 
 resources:
   jobs:
-    ais_pipeline:
-      name: "[${bundle.target}] AIS Pipeline"
+    ais_pipeline_full:
+      name: "[${bundle.target}] AIS Pipeline - Full"
+      performance_target: PERFORMANCE_OPTIMIZED
       tasks:
         - task_key: download_ais
           python_wheel_task:
@@ -95,10 +108,8 @@ resources:
               - "${var.schema}"
               - "--volume"
               - "${var.download_target_volume}"
-              - "--year"
-              - "${var.download_year}"
-              - "--limit"
-              - "${var.download_limit}"
+              - "--start-date"
+              - "${var.download_start_date}"
           environment_key: default
         
         - task_key: decompress_files
@@ -116,10 +127,139 @@ resources:
               - "${var.source_volume}"
               - "--landing-volume"
               - "${var.landing_volume}"
-              - "--limit"
-              - "${var.decompressor_limit}"
               - "--delete-compressed"
               - "${var.decompressor_delete_compressed}"
+          environment_key: default
+        
+        - task_key: create_ais_records
+          depends_on:
+            - task_key: decompress_files
+          python_wheel_task:
+            package_name: ais_pipelines
+            entry_point: create-ais-records
+            parameters:
+              - "--catalog"
+              - "${var.catalog}"
+              - "--schema"
+              - "${var.schema}"
+              - "--landing-volume"
+              - "${var.landing_volume}"
+              - "--target-table"
+              - "${var.create_ais_records_target_table}"
+              - "--start-date"
+              - "${var.download_start_date}"
+              - "--end-date"
+              - "${var.download_end_date}"
+          environment_key: default
+        
+        - task_key: create_anomaly_features
+          depends_on:
+            - task_key: create_ais_records
+          python_wheel_task:
+            package_name: ais_pipelines
+            entry_point: anomaly-features
+            parameters:
+              - "--catalog"
+              - "${var.catalog}"
+              - "--schema"
+              - "${var.schema}"
+              - "--start-date"
+              - "${var.download_start_date}"
+              - "--end-date"
+              - "${var.download_end_date}"
+              - "--session-gap-hours"
+              - "${var.anomaly_features_session_gap_hours}"
+              - "--historical-baseline-pct"
+              - "${var.anomaly_features_historical_baseline_pct}"
+              - "--spatial-context-pct"
+              - "${var.anomaly_features_spatial_context_pct}"
+              - "--ml-pct"
+              - "${var.anomaly_features_ml_pct}"
+              - "--vessel-type-filter"
+              - "${var.anomaly_features_vessel_type_filter}"
+          environment_key: default
+        
+        - task_key: detect_anomalies
+          depends_on:
+            - task_key: create_anomaly_features
+          python_wheel_task:
+            package_name: ais_pipelines
+            entry_point: anomaly-detection
+            parameters:
+              - "--catalog"
+              - "${var.catalog}"
+              - "--schema"
+              - "${var.schema}"
+              - "--encoding-dim"
+              - "${var.anomaly_detection_encoding_dim}"
+              - "--epochs"
+              - "${var.anomaly_detection_epochs}"
+              - "--batch-size"
+              - "${var.anomaly_detection_batch_size}"
+          environment_key: default
+      
+      environments:
+        - environment_key: default
+          spec:
+            client: "4"
+            dependencies:
+              - ./dist/*.whl
+    
+    ais_pipeline_features:
+      name: "[${bundle.target}] AIS Pipeline - Features Only"
+      performance_target: PERFORMANCE_OPTIMIZED
+      tasks:
+        - task_key: create_anomaly_features
+          python_wheel_task:
+            package_name: ais_pipelines
+            entry_point: anomaly-features
+            parameters:
+              - "--catalog"
+              - "${var.catalog}"
+              - "--schema"
+              - "${var.schema}"
+              - "--start-date"
+              - "${var.download_start_date}"
+              - "--end-date"
+              - "${var.download_end_date}"
+              - "--session-gap-hours"
+              - "${var.anomaly_features_session_gap_hours}"
+              - "--historical-baseline-pct"
+              - "${var.anomaly_features_historical_baseline_pct}"
+              - "--spatial-context-pct"
+              - "${var.anomaly_features_spatial_context_pct}"
+              - "--ml-pct"
+              - "${var.anomaly_features_ml_pct}"
+              - "--vessel-type-filter"
+              - "${var.anomaly_features_vessel_type_filter}"
+          environment_key: default
+      
+      environments:
+        - environment_key: default
+          spec:
+            client: "4"
+            dependencies:
+              - ./dist/*.whl
+    
+    ais_pipeline_anomaly_detection:
+      name: "[${bundle.target}] AIS Pipeline - Anomaly Detection Only"
+      performance_target: PERFORMANCE_OPTIMIZED
+      tasks:
+        - task_key: detect_anomalies
+          python_wheel_task:
+            package_name: ais_pipelines
+            entry_point: anomaly-detection
+            parameters:
+              - "--catalog"
+              - "${var.catalog}"
+              - "--schema"
+              - "${var.schema}"
+              - "--encoding-dim"
+              - "${var.anomaly_detection_encoding_dim}"
+              - "--epochs"
+              - "${var.anomaly_detection_epochs}"
+              - "--batch-size"
+              - "${var.anomaly_detection_batch_size}"
           environment_key: default
       
       environments:
