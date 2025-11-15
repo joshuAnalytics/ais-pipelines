@@ -100,3 +100,13 @@ logs/
 *.temp
 .tmp/
 temp/
+
+# Large geospatial data files (use optimized parquet instead)
+notebooks/data/eez/eez_v12.shp
+notebooks/data/eez/eez_v12.shx
+notebooks/data/eez/eez_v12.dbf
+notebooks/data/eez/eez_v12.prj
+notebooks/data/eez/eez_v12.cpg
+notebooks/data/eez/eez_v12.qmd
+notebooks/data/eez/eez_v12.parquet
+notebooks/data/eez/eez_boundaries_v12.*
