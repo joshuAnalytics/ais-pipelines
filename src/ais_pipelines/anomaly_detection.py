@@ -14,8 +14,7 @@ from typing import Tuple, Dict, Any
 import numpy as np
 import pandas as pd
 from pyspark.sql import SparkSession, functions as F
-from pyspark.ml.feature import VectorAssembler, StandardScaler
-from pyspark.ml import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 # TensorFlow imports
 import tensorflow as tf
@@ -205,52 +204,48 @@ class AnomalyDetector:
     def __init__(self, config: AnomalyDetectionConfig) -> None:
         self.config = config
         self.spark = SparkSession.builder.getOrCreate()
+        
+        # Set default catalog and schema to avoid hive_metastore access
+        self.spark.sql(f"USE CATALOG {config.catalog}")
+        self.spark.sql(f"USE SCHEMA {config.schema}")
+        
         self.model: AutoencoderModel = None
         self.anomaly_threshold: float = None
         self.pipeline_model = None
         
-    def load_features(self) -> pd.DataFrame:
-        """Load and prepare feature data."""
+    def load_features(self) -> Tuple[pd.DataFrame, np.ndarray]:
+        """Load and prepare feature data using sklearn."""
         table_name = f"{self.config.catalog}.{self.config.schema}.vessel_ml_features"
         print(f"Loading features from {table_name}...")
         
-        df = self.spark.table(table_name)
+        # Select required columns and convert directly to pandas
+        columns_to_select = ["mmsi", "vessel_name", "timestamp", "latitude", "longitude"] + self.config.feature_columns
+        df = self.spark.table(table_name).select(*columns_to_select)
+        
         print(f"Total records: {df.count():,}")
         
-        # Handle missing values
-        df_filled = df.fillna(0, subset=self.config.feature_columns)
+        # Convert to pandas
+        pdf = df.toPandas()
         
-        # Scale features
-        assembler = VectorAssembler(
-            inputCols=self.config.feature_columns,
-            outputCol="features_raw",
-            handleInvalid="skip"
-        )
+        # Handle missing values in feature columns
+        pdf[self.config.feature_columns] = pdf[self.config.feature_columns].fillna(0)
         
-        scaler = StandardScaler(
-            inputCol="features_raw",
-            outputCol="features_scaled",
-            withMean=True,
-            withStd=True
-        )
+        # Extract feature matrix
+        X = pdf[self.config.feature_columns].values
         
-        pipeline = Pipeline(stages=[assembler, scaler])
-        self.pipeline_model = pipeline.fit(df_filled)
-        df_scaled = self.pipeline_model.transform(df_filled)
+        # Scale features using sklearn
+        print(f"Scaling features with sklearn StandardScaler...")
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
         
-        # Convert to Pandas
-        pdf = df_scaled.select(
-            "mmsi", "vessel_name", "timestamp", "latitude", "longitude",
-            "features_scaled"
-        ).toPandas()
+        # Store scaler for potential future use
+        self.scaler = scaler
         
         print(f"Prepared {len(pdf):,} records for training")
-        return pdf
+        return pdf, X_scaled
     
-    def prepare_training_data(self, pdf: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Extract and split feature arrays."""
-        X = np.array([row.toArray() for row in pdf['features_scaled']])
-        
+    def prepare_training_data(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Split feature arrays into training and validation sets."""
         train_size = int(0.8 * len(X))
         X_train = X[:train_size]
         X_val = X[train_size:]
@@ -258,7 +253,7 @@ class AnomalyDetector:
         print(f"Training samples: {len(X_train):,}")
         print(f"Validation samples: {len(X_val):,}")
         
-        return X, X_train, X_val
+        return X_train, X_val
     
     def train_model(self, X_train: np.ndarray, X_val: np.ndarray) -> None:
         """Build and train the autoencoder model."""
@@ -414,8 +409,8 @@ class AnomalyDetector:
         self.spark.sql(f"USE SCHEMA {self.config.schema}")
         
         # Load and prepare data
-        pdf = self.load_features()
-        X, X_train, X_val = self.prepare_training_data(pdf)
+        pdf, X = self.load_features()
+        X_train, X_val = self.prepare_training_data(X)
         
         # Train model
         self.train_model(X_train, X_val)
