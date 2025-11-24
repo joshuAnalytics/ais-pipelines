@@ -68,7 +68,7 @@ variables:
   
   anomaly_features_vessel_type_filter:
     description: "Vessel type code to filter (e.g., 55 for Law Enforcement). Set to 0 for all types."
-    default: 70
+    default: 30
   
   # Anomaly Detection Configuration
   anomaly_detection_encoding_dim:
