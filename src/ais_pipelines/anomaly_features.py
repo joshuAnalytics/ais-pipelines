@@ -950,6 +950,10 @@ class VesselAnomalyFeaturesOrchestrator:
         self.catalog = catalog
         self.schema = schema
         
+        # Set default catalog and schema to avoid hive_metastore access
+        self.spark.sql(f"USE CATALOG {catalog}")
+        self.spark.sql(f"USE SCHEMA {schema}")
+        
         self.config = AnomalyFeaturesConfig(
             start_date=start_date,
             end_date=end_date,
