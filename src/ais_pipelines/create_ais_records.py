@@ -237,6 +237,10 @@ class AisRecordsOrchestrator:
         self.start_date = start_date
         self.end_date = end_date
         
+        # Set default catalog and schema to avoid hive_metastore access
+        self.spark.sql(f"USE CATALOG {catalog}")
+        self.spark.sql(f"USE SCHEMA {schema}")
+        
         self.volume_path = f"/Volumes/{catalog}/{schema}/{landing_volume}"
         self.full_table_name = f"{catalog}.{schema}.{target_table}"
         
