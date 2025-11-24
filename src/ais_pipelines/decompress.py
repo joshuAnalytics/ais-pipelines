@@ -214,6 +214,10 @@ class DecompressOrchestrator:
         self.limit = limit
         self.delete_compressed = delete_compressed
 
+        # Set default catalog and schema to avoid hive_metastore access
+        self.spark.sql(f"USE CATALOG {catalog}")
+        self.spark.sql(f"USE SCHEMA {schema}")
+
         self.unity = UnityUtilities(self.spark, catalog, schema)
         self.source_path = f"/Volumes/{catalog}/{schema}/{history_volume}"
         self.landing_path = f"/Volumes/{catalog}/{schema}/{landing_volume}"
