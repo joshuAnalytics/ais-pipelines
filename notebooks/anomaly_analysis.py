@@ -131,7 +131,108 @@ print(f"99th Percentile: {error_stats['p99_error'].iloc[0]:.6f}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 3. Anomaly Distribution Analysis
+# MAGIC ## 2.5. Feature Table Overview
+
+# COMMAND ----------
+
+# Get row counts for all feature tables
+feature_tables = {
+    "Behavioral Features": f"{CATALOG}.{SCHEMA}.vessel_behavioral_features",
+    "Rolling Patterns": f"{CATALOG}.{SCHEMA}.vessel_rolling_patterns",
+    "H3 Normal Patterns": f"{CATALOG}.{SCHEMA}.h3_normal_patterns",
+    "H3 Cell Statistics": f"{CATALOG}.{SCHEMA}.h3_cell_statistics",
+    "Cell Hourly Stats": f"{CATALOG}.{SCHEMA}.cell_hourly_statistics",
+    "Spatial Context": f"{CATALOG}.{SCHEMA}.vessel_spatial_context",
+    "ML Features": f"{CATALOG}.{SCHEMA}.vessel_ml_features"
+}
+
+print(f"{'='*80}")
+print("FEATURE TABLE OVERVIEW")
+print(f"{'='*80}")
+print(f"{'Table Name':<30} {'Row Count':>15} {'Unique Vessels':>15}")
+print(f"{'='*80}")
+
+for name, table in feature_tables.items():
+    try:
+        df = spark.table(table)
+        count = df.count()
+        vessels = df.select("mmsi").distinct().count() if "mmsi" in df.columns else "N/A"
+        print(f"{name:<30} {count:>15,} {str(vessels):>15}")
+    except Exception as e:
+        print(f"{name:<30} {'Table not found':>15}")
+
+print(f"{'='*80}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 3. Session Analysis
+
+# COMMAND ----------
+
+# Load behavioral features for session analysis
+behavioral_features = spark.table(f"{CATALOG}.{SCHEMA}.vessel_behavioral_features")
+
+# Session statistics
+session_stats = behavioral_features.groupBy("session_id").agg(
+    F.count("*").alias("observations_in_session"),
+    F.first("mmsi").alias("mmsi"),
+    F.min("timestamp").alias("session_start"),
+    F.max("timestamp").alias("session_end"),
+    F.first("session_duration_hours").alias("duration_hours")
+).select("mmsi", "observations_in_session", "duration_hours")
+
+# Aggregate statistics
+session_summary = session_stats.select(
+    F.mean("observations_in_session").alias("avg_obs_per_session"),
+    F.expr("percentile(observations_in_session, 0.5)").alias("median_obs"),
+    F.expr("percentile(observations_in_session, 0.95)").alias("p95_obs"),
+    F.mean("duration_hours").alias("avg_duration_hours"),
+    F.expr("percentile(duration_hours, 0.5)").alias("median_duration"),
+    F.expr("percentile(duration_hours, 0.95)").alias("p95_duration")
+).toPandas()
+
+print(f"{'='*80}")
+print("SESSION STATISTICS")
+print(f"{'='*80}")
+print(f"Avg Observations per Session: {session_summary['avg_obs_per_session'].iloc[0]:.1f}")
+print(f"Median Observations: {session_summary['median_obs'].iloc[0]:.0f}")
+print(f"95th Percentile Observations: {session_summary['p95_obs'].iloc[0]:.0f}")
+print(f"\nAvg Session Duration: {session_summary['avg_duration_hours'].iloc[0]:.1f} hours")
+print(f"Median Duration: {session_summary['median_duration'].iloc[0]:.1f} hours")
+print(f"95th Percentile Duration: {session_summary['p95_duration'].iloc[0]:.1f} hours")
+print(f"{'='*80}")
+
+# COMMAND ----------
+
+# Session characteristics distribution
+session_sample = session_stats.sample(False, 0.1, seed=42).toPandas()
+
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+# Observations per session
+ax1.hist(session_sample['observations_in_session'], bins=50, color='steelblue', edgecolor='black')
+ax1.set_title('Observations per Session', fontsize=14, fontweight='bold')
+ax1.set_xlabel('Number of Observations')
+ax1.set_ylabel('Frequency')
+ax1.set_xlim(0, session_sample['observations_in_session'].astype(float).quantile(0.95))
+ax1.grid(alpha=0.3)
+
+# Session duration
+ax2.hist(session_sample['duration_hours'], bins=50, color='coral', edgecolor='black')
+ax2.set_title('Session Duration', fontsize=14, fontweight='bold')
+ax2.set_xlabel('Duration (hours)')
+ax2.set_ylabel('Frequency')
+ax2.set_xlim(0, session_sample['duration_hours'].astype(float).quantile(0.95))
+ax2.grid(alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 4. Anomaly Distribution Analysis
 
 # COMMAND ----------
 
@@ -301,7 +402,215 @@ plt.show()
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 4. Feature Analysis
+# MAGIC ## 4.5. Rolling Pattern Analysis
+
+# COMMAND ----------
+
+# Load rolling patterns table
+rolling_patterns = spark.table(f"{CATALOG}.{SCHEMA}.vessel_rolling_patterns")
+
+# Rolling pattern statistics
+rolling_stats = rolling_patterns.select(
+    F.mean("avg_speed_6h").alias("mean_6h_speed"),
+    F.expr("percentile(avg_speed_6h, 0.5)").alias("median_6h_speed"),
+    F.mean("avg_speed_24h").alias("mean_24h_speed"),
+    F.expr("percentile(avg_speed_24h, 0.5)").alias("median_24h_speed"),
+    F.mean("avg_course_change_6h").alias("mean_course_change"),
+    F.expr("percentile(h3_changes_6h, 0.95)").alias("p95_h3_changes"),
+    F.mean("data_quality_score").alias("avg_data_quality")
+).toPandas()
+
+print(f"{'='*80}")
+print("ROLLING PATTERN STATISTICS")
+print(f"{'='*80}")
+print(f"6-Hour Window:")
+print(f"  Mean Speed: {rolling_stats['mean_6h_speed'].iloc[0]:.2f} knots")
+print(f"  Median Speed: {rolling_stats['median_6h_speed'].iloc[0]:.2f} knots")
+print(f"\n24-Hour Window:")
+print(f"  Mean Speed: {rolling_stats['mean_24h_speed'].iloc[0]:.2f} knots")
+print(f"  Median Speed: {rolling_stats['median_24h_speed'].iloc[0]:.2f} knots")
+print(f"\nMovement Patterns:")
+print(f"  Mean Course Change (6h): {rolling_stats['mean_course_change'].iloc[0]:.2f}°")
+print(f"  95th Percentile H3 Changes: {rolling_stats['p95_h3_changes'].iloc[0]:.0f}")
+print(f"\nData Quality:")
+print(f"  Avg Quality Score: {rolling_stats['avg_data_quality'].iloc[0]:.2f}")
+print(f"{'='*80}")
+
+# COMMAND ----------
+
+# Data quality distribution
+quality_dist = rolling_patterns.groupBy("data_quality_score").count().orderBy("data_quality_score").toPandas()
+
+fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+
+# Data quality score distribution
+axes[0].bar(quality_dist['data_quality_score'], quality_dist['count'], color='steelblue', edgecolor='black')
+axes[0].set_title('Data Quality Score Distribution', fontsize=12, fontweight='bold')
+axes[0].set_xlabel('Quality Score')
+axes[0].set_ylabel('Count')
+axes[0].grid(alpha=0.3, axis='y')
+
+# Speed stability (6h window)
+speed_sample = rolling_patterns.select("avg_speed_6h", "stddev_speed_6h").fillna(0).sample(False, 0.1, seed=42).toPandas()
+axes[1].scatter(speed_sample['avg_speed_6h'], speed_sample['stddev_speed_6h'], alpha=0.3, s=10)
+axes[1].set_title('Speed Stability (6h Window)', fontsize=12, fontweight='bold')
+axes[1].set_xlabel('Avg Speed (knots)')
+axes[1].set_ylabel('Std Dev Speed')
+axes[1].grid(alpha=0.3)
+axes[1].set_xlim(0, 30)
+
+# Erratic behavior score
+erratic_sample = rolling_patterns.select("erratic_score_6h").fillna(0).filter(F.col("erratic_score_6h") > 0).sample(False, 0.1, seed=42).toPandas()
+if len(erratic_sample) > 0:
+    axes[2].hist(erratic_sample['erratic_score_6h'], bins=50, color='coral', edgecolor='black')
+    axes[2].set_title('Erratic Behavior Score', fontsize=12, fontweight='bold')
+    axes[2].set_xlabel('Erratic Score')
+    axes[2].set_ylabel('Frequency')
+    axes[2].set_xlim(0, erratic_sample['erratic_score_6h'].astype(float).quantile(0.95))
+    axes[2].grid(alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 4.6. Spatial Context Analysis
+
+# COMMAND ----------
+
+# Load spatial context table
+spatial_context = spark.table(f"{CATALOG}.{SCHEMA}.vessel_spatial_context")
+
+# Spatial context statistics
+spatial_stats = spatial_context.select(
+    F.mean("vessels_in_same_cell").alias("avg_same_cell"),
+    F.expr("percentile(vessels_in_same_cell, 0.95)").alias("p95_same_cell"),
+    F.mean("vessels_in_kring1").alias("avg_kring1"),
+    F.sum(F.when(F.col("is_isolated") == 1, 1).otherwise(0)).alias("isolated_count"),
+    F.count("*").alias("total_observations")
+).toPandas()
+
+isolation_rate = (spatial_stats['isolated_count'].iloc[0] / spatial_stats['total_observations'].iloc[0]) * 100
+
+print(f"{'='*80}")
+print("SPATIAL CONTEXT STATISTICS")
+print(f"{'='*80}")
+print(f"Vessel Density:")
+print(f"  Avg Vessels in Same Cell: {spatial_stats['avg_same_cell'].iloc[0]:.2f}")
+print(f"  95th Percentile Same Cell: {spatial_stats['p95_same_cell'].iloc[0]:.0f}")
+print(f"  Avg Vessels in KRing-1: {spatial_stats['avg_kring1'].iloc[0]:.2f}")
+print(f"\nIsolation:")
+print(f"  Isolated Observations: {spatial_stats['isolated_count'].iloc[0]:,}")
+print(f"  Isolation Rate: {isolation_rate:.2f}%")
+print(f"{'='*80}")
+
+# COMMAND ----------
+
+# Density distribution
+density_sample = spatial_context.select("vessels_in_same_cell", "vessels_in_kring1", "local_density_ratio").sample(False, 0.1, seed=42).toPandas()
+
+fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+
+# Vessels in same cell
+axes[0].hist(density_sample['vessels_in_same_cell'], bins=30, color='steelblue', edgecolor='black')
+axes[0].set_title('Vessels in Same H3 Cell', fontsize=12, fontweight='bold')
+axes[0].set_xlabel('Vessel Count')
+axes[0].set_ylabel('Frequency')
+axes[0].set_xlim(0, density_sample['vessels_in_same_cell'].astype(float).quantile(0.95))
+axes[0].grid(alpha=0.3)
+
+# Vessels in neighborhood
+axes[1].hist(density_sample['vessels_in_kring1'], bins=30, color='teal', edgecolor='black')
+axes[1].set_title('Vessels in Neighborhood (KRing-1)', fontsize=12, fontweight='bold')
+axes[1].set_xlabel('Vessel Count')
+axes[1].set_ylabel('Frequency')
+axes[1].set_xlim(0, density_sample['vessels_in_kring1'].astype(float).quantile(0.95))
+axes[1].grid(alpha=0.3)
+
+# Local density ratio
+axes[2].hist(density_sample['local_density_ratio'], bins=30, color='coral', edgecolor='black')
+axes[2].set_title('Local Density Ratio', fontsize=12, fontweight='bold')
+axes[2].set_xlabel('Ratio')
+axes[2].set_ylabel('Frequency')
+axes[2].grid(alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 4.7. Historical Baseline Comparison
+
+# COMMAND ----------
+
+# Load H3 normal patterns
+h3_patterns = spark.table(f"{CATALOG}.{SCHEMA}.h3_normal_patterns")
+
+# Historical pattern statistics
+pattern_stats = h3_patterns.select(
+    F.mean("median_speed").alias("avg_historical_median"),
+    F.expr("percentile(median_speed, 0.5)").alias("median_historical"),
+    F.mean("avg_signal_gap").alias("avg_signal_gap"),
+    F.mean("p95_signal_gap").alias("avg_p95_gap"),
+    F.count("*").alias("total_patterns")
+).toPandas()
+
+print(f"{'='*80}")
+print("HISTORICAL BASELINE STATISTICS")
+print(f"{'='*80}")
+print(f"Total Location-Type-Hour Patterns: {pattern_stats['total_patterns'].iloc[0]:,}")
+print(f"\nSpeed Baselines:")
+print(f"  Avg Historical Median Speed: {pattern_stats['avg_historical_median'].iloc[0]:.2f} knots")
+print(f"  Median of Historical Medians: {pattern_stats['median_historical'].iloc[0]:.2f} knots")
+print(f"\nSignal Gap Patterns:")
+print(f"  Avg Signal Gap: {pattern_stats['avg_signal_gap'].iloc[0]:.2f} hours")
+print(f"  Avg 95th Percentile Gap: {pattern_stats['avg_p95_gap'].iloc[0]:.2f} hours")
+print(f"{'='*80}")
+
+# COMMAND ----------
+
+# Current vs historical speed comparison (for anomalies)
+speed_comparison = combined.filter(F.col("is_anomaly")).select(
+    "sog",
+    "historical_median_speed",
+    "historical_q95_speed"
+).fillna(0).sample(False, 0.2, seed=42).toPandas()
+
+if len(speed_comparison) > 0:
+    speed_comparison['speed_deviation'] = speed_comparison['sog'] - speed_comparison['historical_median_speed']
+    speed_comparison['exceeds_p95'] = speed_comparison['sog'] > speed_comparison['historical_q95_speed']
+    
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+    
+    # Speed deviation distribution
+    ax1.hist(speed_comparison['speed_deviation'], bins=50, color='steelblue', edgecolor='black')
+    ax1.axvline(x=0, color='red', linestyle='--', linewidth=2, label='No Deviation')
+    ax1.set_title('Speed Deviation from Historical Baseline\n(Anomalies Only)', fontsize=12, fontweight='bold')
+    ax1.set_xlabel('Speed Deviation (knots)')
+    ax1.set_ylabel('Frequency')
+    ax1.legend()
+    ax1.grid(alpha=0.3)
+    
+    # Exceeding P95 analysis
+    exceeds_counts = speed_comparison['exceeds_p95'].value_counts()
+    ax2.bar(['Below P95', 'Exceeds P95'], [exceeds_counts.get(False, 0), exceeds_counts.get(True, 0)], 
+            color=['green', 'red'], edgecolor='black')
+    ax2.set_title('Anomalies Exceeding Historical 95th Percentile', fontsize=12, fontweight='bold')
+    ax2.set_ylabel('Count')
+    ax2.grid(alpha=0.3, axis='y')
+    
+    for i, v in enumerate([exceeds_counts.get(False, 0), exceeds_counts.get(True, 0)]):
+        ax2.text(i, v + v*0.01, f'{int(v):,}', ha='center', va='bottom')
+    
+    plt.tight_layout()
+    plt.show()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 5. Feature Analysis
 
 # COMMAND ----------
 
@@ -421,15 +730,29 @@ if len(top_anomalies) > 0:
 # MAGIC %md
 # MAGIC ## Summary
 # MAGIC
-# MAGIC This notebook provides analysis of the anomaly detection results:
+# MAGIC This notebook provides comprehensive analysis of the anomaly detection results and feature engineering:
 # MAGIC
-# MAGIC 1. **Overview** - Overall statistics and anomaly rates
-# MAGIC 2. **Distribution** - Severity breakdown, top anomalous vessels, and vessel type analysis
-# MAGIC 3. **Spatial** - Geographic patterns, hotspots, and location type analysis
-# MAGIC 4. **Features** - Key features that correlate with anomalies
-# MAGIC 5. **Samples** - Detailed inspection of specific critical anomalies
+# MAGIC 1. **Setup & Data Loading** - Initialize environment and load feature tables
+# MAGIC 2. **Overview Statistics** - Overall statistics, anomaly rates, and reconstruction errors
+# MAGIC 3. **Feature Table Overview** - Summary of all 7 feature tables created by the pipeline
+# MAGIC 4. **Session Analysis** - Vessel entry/exit patterns and session characteristics
+# MAGIC 5. **Anomaly Distribution** - Severity breakdown, top anomalous vessels, and vessel type analysis
+# MAGIC 6. **Spatial Analysis** - Geographic patterns, hotspots, and location type analysis
+# MAGIC 7. **Rolling Pattern Analysis** - Time-windowed statistics, speed stability, and data quality
+# MAGIC 8. **Spatial Context Analysis** - Vessel density patterns, isolation rates, and neighborhood dynamics
+# MAGIC 9. **Historical Baseline Comparison** - Current vs historical speed deviations and pattern violations
+# MAGIC 10. **Feature Analysis** - Feature correlations with anomaly scores
+# MAGIC 11. **Sample Anomalies** - Detailed inspection of specific critical anomalies
+# MAGIC
+# MAGIC **Key Insights:**
+# MAGIC - **Session-Based Approach**: Handles vessels entering/exiting coverage areas
+# MAGIC - **Multi-Resolution Features**: Combines behavioral, temporal, spatial, and historical patterns
+# MAGIC - **Data Quality Tracking**: Monitors observation sufficiency for reliable detection
+# MAGIC - **Spatial Context**: Accounts for vessel density and location characteristics
 # MAGIC
 # MAGIC **Next Steps:**
 # MAGIC - Review critical anomalies for operational action
 # MAGIC - Monitor vessel types with high anomaly rates
 # MAGIC - Investigate geographic hotspots
+# MAGIC - Analyze session boundary patterns for coverage gaps
+# MAGIC - Compare anomaly rates across different spatial contexts

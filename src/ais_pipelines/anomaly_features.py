@@ -211,7 +211,19 @@ class BehavioralFeaturesCreator:
             
             -- H3 cell changes (erratic movement indicator)
             CASE WHEN h3_res8 != prev_h3_res8 THEN 1 ELSE 0 END as changed_h3_cell,
-            CASE WHEN h3_res7 != prev_h3_res7 THEN 1 ELSE 0 END as changed_h3_parent
+            CASE WHEN h3_res7 != prev_h3_res7 THEN 1 ELSE 0 END as changed_h3_parent,
+            
+            -- Actual observation counts within rolling time windows (session-aware)
+            COUNT(*) OVER (
+              PARTITION BY session_id 
+              ORDER BY unix_timestamp(timestamp) 
+              RANGE BETWEEN 21600 PRECEDING AND CURRENT ROW
+            ) as obs_count_6h,
+            COUNT(*) OVER (
+              PARTITION BY session_id 
+              ORDER BY unix_timestamp(timestamp) 
+              RANGE BETWEEN 86400 PRECEDING AND CURRENT ROW
+            ) as obs_count_24h
             
           FROM vessel_trajectory
           WHERE prev_timestamp IS NOT NULL OR is_new_session = 1
@@ -281,16 +293,16 @@ class BehavioralFeaturesCreator:
           -- Average of current and previous sog
           (sog + COALESCE(prev_sog, sog)) / 2 * 1.852 as avg_sog_kmh,
           
-          -- Data quality indicators
+          -- Data quality indicators (based on actual rolling window observation counts)
           CASE 
             WHEN is_session_start = 1 THEN 0
-            WHEN session_observation_count < {self.config.min_obs_6h} THEN 0
+            WHEN obs_count_6h < {self.config.min_obs_6h} THEN 0
             ELSE 1 
           END as has_sufficient_history_6h,
           
           CASE 
             WHEN time_since_session_start < 24 THEN 0
-            WHEN session_observation_count < {self.config.min_obs_24h} THEN 0
+            WHEN obs_count_24h < {self.config.min_obs_24h} THEN 0
             ELSE 1 
           END as has_sufficient_history_24h
         FROM computed_features
@@ -937,6 +949,10 @@ class VesselAnomalyFeaturesOrchestrator:
         self.spark = SparkSession.builder.getOrCreate()
         self.catalog = catalog
         self.schema = schema
+        
+        # Set default catalog and schema to avoid hive_metastore access
+        self.spark.sql(f"USE CATALOG {catalog}")
+        self.spark.sql(f"USE SCHEMA {schema}")
         
         self.config = AnomalyFeaturesConfig(
             start_date=start_date,
